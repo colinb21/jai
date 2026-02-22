@@ -1,7 +1,6 @@
 #include <cassert>
 #include <cstring>
 #include <filesystem>
-#include <functional>
 #include <print>
 #include <utility>
 
@@ -17,68 +16,14 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <unistd.h>
+
+#include "jai.h"
 
 using std::filesystem::path;
 
 path prog;
 
 constexpr const char *kRunRoot = "/run/jai";
-
-// Self-closing, movable file descriptor, use operator* to access value
-struct Fd {
-  int fd_{-1};
-
-  Fd() noexcept = default;
-  Fd(int fd) : fd_(fd) {}
-  Fd(Fd &&other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
-  ~Fd() { reset(); }
-
-  Fd &operator=(Fd &&other) noexcept
-  {
-    if (this != &other) {
-      reset();
-      fd_ = std::exchange(other.fd_, -1);
-    }
-    return *this;
-  }
-  Fd &operator=(int fd) noexcept
-  {
-    reset();
-    fd_ = fd;
-    return *this;
-  }
-
-  int operator*() const noexcept { return fd_; }
-  explicit operator bool() const { return fd_ >= 0; }
-  void reset(int fd = -1) noexcept
-  {
-    if (*this)
-      close(fd_);
-    fd_ = fd;
-  }
-};
-
-// Generic RIAA destructor
-struct Defer {
-  std::function<void()> f_;
-
-  Defer() noexcept = default;
-  Defer(decltype(f_) f) noexcept : f_(std::move(f)) {}
-  Defer(Defer &&other) noexcept : f_(other.release()) {}
-  ~Defer() { reset(); }
-  Defer &operator=(Defer &&other) noexcept
-  {
-    f_ = other.release();
-    return *this;
-  }
-  decltype(f_) release() noexcept { return std::exchange(f_, nullptr); }
-  void reset(decltype(f_) f = nullptr) noexcept
-  {
-    if (auto old = std::exchange(f_, f))
-      old();
-  }
-};
 
 struct Config {
   std::string user_;
@@ -347,7 +292,7 @@ Config::makens()
   int saved_errno = errno;
 
   close(pipefds[0]);
-  Fd child_block = pipefds[1];
+  //Fd child_block = pipefds[1];
 
   if (pid == -1) {
     errno = saved_errno;
