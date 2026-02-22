@@ -28,14 +28,16 @@ struct Fd {
   int fd_{-1};
 
   Fd() noexcept = default;
-  explicit Fd(int fd) : fd_(fd) {}
+  Fd(int fd) : fd_(fd) {}
   Fd(Fd &&other) noexcept : fd_(std::exchange(other.fd_, -1)) {}
   ~Fd() { reset(); }
 
   Fd &operator=(Fd &&other) noexcept
   {
-    reset();
-    fd_ = std::exchange(other.fd_, -1);
+    if (this != &other) {
+      reset();
+      fd_ = std::exchange(other.fd_, -1);
+    }
     return *this;
   }
   Fd &operator=(int fd) noexcept
@@ -49,10 +51,9 @@ struct Fd {
   explicit operator bool() const { return fd_ >= 0; }
   void reset(int fd = -1) noexcept
   {
-    if (*this) {
+    if (*this)
       close(fd_);
-      fd_ = fd;
-    }
+    fd_ = fd;
   }
 };
 
@@ -138,7 +139,7 @@ openlock(int dfd, path file)
 {
   assert(!file.empty());
 
-  Fd fd(openat(dfd, file.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW));
+  Fd fd = openat(dfd, file.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
   if (fd) {
     if (!flock(*fd, LOCK_EX | LOCK_NB)) {
       struct stat sb;
@@ -174,6 +175,28 @@ openlock(int dfd, path file)
     if (errno != EEXIST)
       syserr(R"(linkat("{}"))", file.string());
     fd.reset();
+  }
+  return fd;
+}
+
+Fd
+ensure_dir(int dfd, path p, mode_t perm = 0755, bool follow = true)
+{
+  Fd fd;
+  int flag = follow ? 0 : O_NOFOLLOW;
+  for (auto component = p.begin(); component != p.end();) {
+    if ((fd = openat(dfd, component->c_str(),
+                     O_PATH | O_DIRECTORY | O_CLOEXEC | flag))) {
+      dfd = *fd;
+      ++component;
+    }
+    else if (errno != ENOENT)
+      syserr(R"(ensure_dir("{}"): open("{}"))", p.string(),
+             component->string());
+    else if (mkdirat(dfd, component->c_str(), perm) && errno != EEXIST)
+      syserr(R"(ensure_dir("{}"): mkdir("{}"))", p.string(),
+             component->string());
+    // Don't advance iterator; want to open directory we just created
   }
   return fd;
 }
@@ -258,8 +281,8 @@ Config::init()
 Fd
 Config::makemount()
 {
-  Fd root(
-      open_tree(-1, "/", OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_RECURSIVE));
+  Fd root =
+      open_tree(-1, "/", OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_RECURSIVE);
   if (!root)
     syserr("open_tree(\"/\")");
   struct mount_attr ro_private = {
@@ -270,7 +293,7 @@ Config::makemount()
                     sizeof(ro_private)) < 0)
     syserr("mount_setattr(root)");
 
-  Fd tmp(fsopen("tmpfs", FSOPEN_CLOEXEC));
+  Fd tmp = fsopen("tmpfs", FSOPEN_CLOEXEC);
   if (!tmp)
     syserr("fsopen(tmpfs)");
   if (fsconfig(*tmp, FSCONFIG_SET_STRING, "size", "10%", 0))
@@ -279,7 +302,7 @@ Config::makemount()
     syserr("fsconfig(mode)");
   if (fsconfig(*tmp, FSCONFIG_CMD_CREATE, NULL, NULL, 0))
     syserr("fsconfig(CREATE)");
-  Fd mnt(fsmount(*tmp, FSMOUNT_CLOEXEC, 0));
+  Fd mnt = fsmount(*tmp, FSMOUNT_CLOEXEC, 0);
   if (!mnt)
     syserr("fsmount(tmp)");
   if (move_mount(*mnt, "", *root, "tmp", MOVE_MOUNT_F_EMPTY_PATH))
@@ -324,7 +347,7 @@ Config::makens()
   int saved_errno = errno;
 
   close(pipefds[0]);
-  Fd child_block(pipefds[1]);
+  Fd child_block = pipefds[1];
 
   if (pid == -1) {
     errno = saved_errno;
@@ -332,13 +355,13 @@ Config::makens()
   }
 
   path child_mnt(std::format("/proc/{}/ns/mnt", pid));
-  Fd nsmount(
-      open_tree(-1, child_mnt.c_str(), OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC));
+  Fd nsmount =
+      open_tree(-1, child_mnt.c_str(), OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC);
   if (!nsmount)
     syserr(R"(open_tree("{}"))", child_mnt.string());
 
   auto restore = asuser();
-  Fd target(openat(jaifd(), ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0600));
+  Fd target = openat(jaifd(), ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);
   if (!target)
     syserr("openat TMPFILE");
   if (flock(*target, LOCK_EX | LOCK_NB))
