@@ -407,73 +407,65 @@ Config::homejai()
   return *home_jai_fd_;
 }
 
+Fd
+make_mount(int conffd, int attr = MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV,
+           decltype(mount_attr::propagation) propagation = MS_PRIVATE)
+{
+  Fd mnt =
+      fsmount(conffd, FSMOUNT_CLOEXEC, MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV);
+  if (!mnt)
+    syserr("fsmount");
+  mount_attr a{.propagation = propagation};
+  if (mount_setattr(*mnt, "", AT_EMPTY_PATH | AT_RECURSIVE, &a, sizeof(a)))
+    syserr("mount_setattr");
+  return mnt;
+}
+
 int
 Config::runjai()
 {
   using namespace std::string_literals;
-  if (!run_jai_fd_) {
-    Fd parent;
-    for (;;) {
-      if ((parent = open(kRunRoot, O_RDONLY | O_DIRECTORY | O_CLOEXEC)))
-        break;
-      if (errno != ENOENT)
-        syserr("{}", kRunRoot);
-      path lockpath = kRunRoot + ".lock"s;
+  if (run_jai_fd_)
+    return *run_jai_fd_;
 
-      // We need to do 3 things atomically:
-      //   - mkdir kRunRoot
-      //   - make kRunRoot a mount point by bind-mounting it on itself
-      //   - make kRunRoot MS_PRIVATE
-      // Do them in a subprocess with real uid 0 to make it harder for
-      // a non-root user to interrupt if this program is setuid root.
-      int pid = fork();
-      if (pid == -1)
-        syserr("fork");
-      if (!pid) {
-        try {
-          if (setuid(0))
-            syserr("setuid(0)");
-          setgid(0);
-          if (setsid() == -1)
-            syserr("setsid");
-          auto lock = openlock(-1, lockpath);
-          if (!lock)
-            _exit(2);
-          parent = ensure_dir(-1, kRunRoot, 0755, kFollow);
-          if (mount(kRunRoot, kRunRoot, nullptr, MS_BIND, nullptr)) {
-            int saved_errno = errno;
-            rmdir(kRunRoot);
-            errno = saved_errno;
-            syserr("mount(MS_BIND)");
-          }
-          if (mount(nullptr, kRunRoot, nullptr, MS_PRIVATE, nullptr)) {
-            int saved_errno = errno;
-            umount(kRunRoot);
-            rmdir(kRunRoot);
-            errno = saved_errno;
-            syserr("mount(MS_PRIVATE)");
-          }
-          unlink(lockpath.c_str());
-          _exit(0);
-        } catch (std::exception &e) {
-          std::println(stderr, "{}", e.what());
-          fflush(stderr);
-          _exit(1);
-        }
-      }
-      int status;
-      if (waitpid(pid, &status, 0) != pid)
-        syserr("waitpid");
-      if (WIFEXITED(status)) {
-        if (WEXITSTATUS(status) == 0)
-          break;
-        if (WEXITSTATUS(status) == 2)
-          continue;
-      }
-      err("failed to create {}", kRunRoot);
-    }
-    run_jai_fd_ = ensure_dir(*parent, user_, 0755, kFollow);
+  const auto lockfile = kRunRoot + ".lock"s;
+  Fd lock;
+  for (;;) {
+    struct stat sb;
+    if (Fd fd = open(kRunRoot, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        fd && !fstatat(*fd, ".initialized", &sb, AT_SYMLINK_NOFOLLOW))
+      return *(run_jai_fd_ = std::move(fd));
+    if (lock)
+      break;
+    lock = openlock(-1, lockfile);
   }
+
+  // Get rid of any partially set up directories
+  while (!umount(kRunRoot))
+    ;
+
+  Fd jaiconf = fsopen("tmpfs", FSOPEN_CLOEXEC);
+  if (!jaiconf)
+    syserr(R"(fsopen("tmpfs"))");
+  if (fsconfig(*jaiconf, FSCONFIG_SET_STRING, "size", "64M", 0) ||
+      fsconfig(*jaiconf, FSCONFIG_SET_STRING, "mode", "0755", 0) ||
+      fsconfig(*jaiconf, FSCONFIG_CMD_CREATE, nullptr, nullptr, 0))
+    syserr(R"(fsconfig(tmpfs))");
+
+  Fd mfd = make_mount(*jaiconf);
+  Fd mp = ensure_dir(-1, kRunRoot, 0755, kFollow);
+  if (move_mount(*mfd, "", *mp, "",
+                 MOVE_MOUNT_F_EMPTY_PATH | MOVE_MOUNT_T_EMPTY_PATH))
+    syserr("move_mount -> \"{}\"", kRunRoot);
+  run_jai_fd_ = ensure_dir(-1, kRunRoot, 0755, kFollow);
+  mount_attr a{.propagation = MS_PRIVATE};
+  if (mount_setattr(*run_jai_fd_, "", AT_EMPTY_PATH | AT_RECURSIVE, &a,
+                    sizeof(a)))
+    syserr("mount_setattr");
+  if (Fd fd = openat(*run_jai_fd_, ".initialized", O_CREAT | O_WRONLY, 0444);
+      !fd)
+    syserr("creat(\".initialized\")");
+  unlink(lockfile.c_str());
   return *run_jai_fd_;
 }
 
@@ -525,7 +517,7 @@ make_blacklist(int dfd, path name)
 }
 
 Fd
-overlay_mount(int lowerfd, int upperfd, int workfd, int attrs)
+overlay_mount(int lowerfd, int upperfd, int workfd)
 {
   Fd fsfd = fsopen("overlay", FSOPEN_CLOEXEC);
   if (!fsfd)
@@ -538,10 +530,7 @@ overlay_mount(int lowerfd, int upperfd, int workfd, int attrs)
   if (fsconfig(*fsfd, FSCONFIG_CMD_CREATE, nullptr, nullptr, 0))
     syserr("fsconfig(FSCONFIG_CMD_CREATE)");
 
-  Fd mfd = fsmount(*fsfd, FSMOUNT_CLOEXEC, attrs);
-  if (!mfd)
-    syserr("fsmount");
-  return mfd;
+  return make_mount(*fsfd);
 }
 
 Fd
@@ -552,9 +541,7 @@ Config::make_overlay()
   Fd work = ensure_dir(homejai(), "work", 0700, kFollow);
   restore.reset();
 
-  Fd mnt = overlay_mount(*homefd_, *changes, *work,
-                         MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV);
-
+  Fd mnt = overlay_mount(*homefd_, *changes, *work);
   Fd olhome = ensure_dir(runjai(), "home", 0755, kFollow);
   if (move_mount(*mnt, "", *olhome, "",
                  MOVE_MOUNT_F_EMPTY_PATH | MOVE_MOUNT_T_EMPTY_PATH))
