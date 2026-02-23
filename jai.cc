@@ -7,6 +7,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <libmount.h>
 #include <pwd.h>
 #include <sched.h>
 #include <sys/file.h>
@@ -16,7 +17,6 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-
 
 path prog;
 
@@ -42,6 +42,27 @@ struct Config {
   int homejai();
   int runjai();
 };
+
+PathSet
+mountpoints(path mountinfo)
+{
+  RaiiHelper<mnt_unref_table> t = mnt_new_table();
+  if (!t)
+    err("mnt_new_table() failed");
+  if (mnt_table_parse_file(t, mountinfo.c_str()))
+    syserr("parse {}", mountinfo.string());
+
+  RaiiHelper<mnt_free_iter> i = mnt_new_iter(MNT_ITER_FORWARD);
+  if (!i)
+    err("mnt_new_iter(MNT_ITER_FORWARD) failed");
+
+  PathSet res;
+  libmnt_fs *mp = nullptr;
+  while (!mnt_table_next_fs(t, i, &mp))
+    if (const char *target = mnt_fs_get_target(mp))
+      res.emplace(target);
+  return res;
+}
 
 // Conservatively fails if file is not a regular file or cannot be
 // statted for any reason.
@@ -273,7 +294,7 @@ Config::makens()
   int saved_errno = errno;
 
   close(pipefds[0]);
-  //Fd child_block = pipefds[1];
+  // Fd child_block = pipefds[1];
 
   if (pid == -1) {
     errno = saved_errno;
@@ -486,7 +507,13 @@ main(int argc, char **argv)
   if (argc > 0)
     prog = argv[0];
 
+  auto mps = mountpoints();
+  for (const auto &p : subtree_rev(mps, "/run"))
+    std::println("{}", p.string());
+
+#if 0
   Config conf;
   conf.init();
   conf.make_overlay();
+#endif
 }
