@@ -7,7 +7,6 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <grp.h>
-#include <libmount.h>
 #include <pwd.h>
 #include <sched.h>
 #include <sys/file.h>
@@ -31,6 +30,8 @@ struct Config {
   Fd homefd_;
   Fd home_jai_fd_;
   Fd run_jai_fd_;
+  Fd run_home_fd_;
+  ;
 
   void init();
   Fd makemount();
@@ -41,150 +42,13 @@ struct Config {
   [[nodiscard]] Defer asuser();
   int homejai();
   int runjai();
+  int runhome()
+  {
+    if (!run_home_fd_)
+      run_home_fd_ = ensure_dir(runjai(), user_, 0755, kNoFollow);
+    return *run_home_fd_;
+  }
 };
-
-PathSet
-mountpoints(path mountinfo)
-{
-  RaiiHelper<mnt_unref_table> t = mnt_new_table();
-  if (!t)
-    err("mnt_new_table() failed");
-  if (mnt_table_parse_file(t, mountinfo.c_str()))
-    syserr("parse {}", mountinfo.string());
-
-  RaiiHelper<mnt_free_iter> i = mnt_new_iter(MNT_ITER_FORWARD);
-  if (!i)
-    err("mnt_new_iter(MNT_ITER_FORWARD) failed");
-
-  PathSet res;
-  libmnt_fs *mp = nullptr;
-  while (!mnt_table_next_fs(t, i, &mp))
-    if (const char *target = mnt_fs_get_target(mp))
-      res.emplace(target);
-  return res;
-}
-
-// Conservatively fails if file is not a regular file or cannot be
-// statted for any reason.
-bool
-is_fd_at_path(int targetfd, int dfd, path file, bool follow = false,
-              struct stat *sbout = nullptr)
-{
-  struct stat sbtmp, sbpath;
-  if (!sbout)
-    sbout = &sbtmp;
-  if (fstat(targetfd, sbout))
-    syserr("fstat");
-  if (fstatat(dfd, file.c_str(), &sbpath, follow ? 0 : AT_SYMLINK_NOFOLLOW))
-    return false;
-  return sbout->st_dev == sbpath.st_dev && sbout->st_ino == sbpath.st_ino;
-}
-
-// Open an exclusive lockfile to guard one-time setup.  Might fail, in
-// which case re-check the need for setup and try again.
-Fd
-openlock(int dfd, path file)
-{
-  assert(!file.empty());
-
-  Fd fd = openat(dfd, file.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
-  if (fd) {
-    if (!flock(*fd, LOCK_EX | LOCK_NB)) {
-      struct stat sb;
-      if (!is_fd_at_path(*fd, dfd, file, false, &sb))
-        // Someone may have unlinked after completing setup; fail and
-        // expect the invoker to call again if setup isn't complete.
-        fd.reset();
-      if (!S_ISREG(sb.st_mode))
-        err("{}: expected regular file", file.string());
-      return fd;
-    }
-    if (errno != EWOULDBLOCK && errno != EINTR)
-      syserr(R"(flock("{}", LOCK_EX|LOCK_NB))", file.string());
-    // We failed, but delay returning until lock is released, at which
-    // point setup will likely be complete.
-    if (flock(*fd, LOCK_SH) && errno != EINTR)
-      syserr(R"(flock("{}", LOCK_SH))", file.string());
-    fd.reset();
-    return fd;
-  }
-  if (errno != ENOENT)
-    syserr(R"(open("{}"))", file.string());
-
-  path parent = file.parent_path();
-  const char *pp = parent.empty() ? "." : parent.c_str();
-  fd.reset(openat(dfd, pp, O_RDWR | O_TMPFILE | O_CLOEXEC, 0600));
-  if (!fd)
-    syserr(R"(openat("{}", O_RDWR|O_TMPFILE))", pp);
-  if (flock(*fd, LOCK_EX | LOCK_NB))
-    // It's a temp file so should be impossible for anyone else to lock it
-    syserr("flock(O_TMPFILE)");
-  if (linkat(*fd, "", dfd, file.c_str(), AT_EMPTY_PATH)) {
-    if (errno != EEXIST)
-      syserr(R"(linkat("{}"))", file.string());
-    fd.reset();
-  }
-  return fd;
-}
-
-enum class FollowLinks {
-  kNoFollow = 0,
-  kFollow = 1,
-};
-using enum FollowLinks;
-
-Fd
-ensure_dir(int dfd, path p, mode_t perm, FollowLinks follow)
-{
-  assert(!p.empty());
-
-  Fd fd;
-  int flag = follow == kFollow ? 0 : O_NOFOLLOW;
-  for (auto component = p.begin(); component != p.end();) {
-    if (Fd nfd = openat(dfd, component->c_str(),
-                        O_RDONLY | O_DIRECTORY | O_CLOEXEC | flag)) {
-      dfd = *(fd = std::move(nfd));
-      ++component;
-    }
-    else if (errno != ENOENT)
-      syserr(R"(ensure_dir("{}"): open("{}"))", p.string(),
-             component->string());
-    else if (mkdirat(dfd, component->c_str(), perm) && errno != EEXIST)
-      syserr(R"(ensure_dir("{}"): mkdir("{}"))", p.string(),
-             component->string());
-    // Don't advance iterator; want to open directory we just created
-  }
-
-  struct stat sb;
-  if (fstat(*fd, &sb))
-    syserr(R"(fstat("{}"))", p.string());
-  if (auto euid = geteuid(); sb.st_uid != euid)
-    err("{}: has uid {} should have {}", p.string(), sb.st_uid, euid);
-  if (auto m = sb.st_mode & perm; m != (sb.st_mode & 07777) && fchmod(*fd, m))
-    syserr(R"(fchmod("{}", {:o}))", p.string(), m);
-  return fd;
-}
-
-bool
-dir_empty(int dirfd)
-{
-  int fd = dup(dirfd);
-  if (fd < 0)
-    syserr("dup");
-  auto dir = fdopendir(fd);
-  if (!dir) {
-    close(fd);
-    syserr("fdopendir");
-  }
-  Defer cleanup([dir] { closedir(dir); });
-
-  while (auto de = readdir(dir))
-    if (de->d_name[0] != '.' ||
-        (de->d_name[1] != '\0' &&
-         (de->d_name[1] != '.' || de->d_name[2] != '\0')))
-      return false;
-  return true;
-}
 
 void
 Config::init()
@@ -308,9 +172,7 @@ Config::makens()
     syserr(R"(open_tree("{}"))", child_mnt.string());
 
   auto restore = asuser();
-  Fd target = openat(homejai(), ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);
-  if (!target)
-    syserr("openat TMPFILE");
+  Fd target = xopenat(homejai(), ".", O_TMPFILE | O_RDWR | O_CLOEXEC, 0600);
   if (flock(*target, LOCK_EX | LOCK_NB))
     syserr("flock TMPFILE");
   if (linkat(*target, "", homejai(), "mnt", AT_EMPTY_PATH)) {
@@ -384,7 +246,7 @@ Config::runjai()
       return *(run_jai_fd_ = std::move(fd));
     if (lock)
       break;
-    lock = openlock(-1, lockfile);
+    lock = open_lockfile(-1, lockfile);
   }
 
   // Get rid of any partially set up directories
@@ -409,9 +271,7 @@ Config::runjai()
   if (mount_setattr(*run_jai_fd_, "", AT_EMPTY_PATH | AT_RECURSIVE, &a,
                     sizeof(a)))
     syserr("mount_setattr");
-  if (Fd fd = openat(*run_jai_fd_, ".initialized", O_CREAT | O_WRONLY, 0444);
-      !fd)
-    syserr("creat(\".initialized\")");
+  xopenat(*run_jai_fd_, ".initialized", O_CREAT | O_WRONLY, 0444);
   unlink(lockfile.c_str());
   return *run_jai_fd_;
 }
@@ -443,7 +303,7 @@ Fd
 make_blacklist(int dfd, path name)
 {
   Fd blacklistfd = ensure_dir(dfd, name.c_str(), 0700, kFollow);
-  if (!dir_empty(*blacklistfd))
+  if (!is_dir_empty(*blacklistfd))
     return blacklistfd;
 
   for (path p : default_blacklist) {
@@ -451,10 +311,7 @@ make_blacklist(int dfd, path name)
       auto d = p.relative_path().parent_path();
       if (!d.empty())
         ensure_dir(*blacklistfd, d, 0700, kNoFollow);
-      if (Fd fd = openat(*blacklistfd, p.c_str(),
-                         O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
-          !fd)
-        syserr("{}/{}", name.string(), p.string());
+      xopenat(*blacklistfd, p.c_str(), O_CREAT | O_WRONLY | O_CLOEXEC, 0600);
     } catch (const std::exception &e) {
       std::println(stderr, "{}", e.what());
     }
@@ -489,15 +346,13 @@ Config::make_overlay()
   restore.reset();
 
   Fd mnt = overlay_mount(*homefd_, *changes, *work);
-  Fd olhome = ensure_dir(runjai(), "home", 0755, kFollow);
+  Fd olhome = ensure_dir(runjai(), "sandboxed-home", 0755, kFollow);
   if (move_mount(*mnt, "", *olhome, "",
                  MOVE_MOUNT_F_EMPTY_PATH | MOVE_MOUNT_T_EMPTY_PATH))
     syserr("move_mount");
 
-  olhome = openat(runjai(), "home", O_RDONLY | O_CLOEXEC | O_DIRECTORY);
-  if (!olhome)
-    syserr("{}/{}/home", kRunRoot, user_);
-  return olhome;
+  return xopenat(runjai(), "sandboxed-home",
+                 O_RDONLY | O_CLOEXEC | O_DIRECTORY);
 }
 
 int
@@ -507,11 +362,13 @@ main(int argc, char **argv)
   if (argc > 0)
     prog = argv[0];
 
-  auto mps = mountpoints();
-  for (const auto &p : subtree_rev(mps, "/run"))
-    std::println("{}", p.string());
-
 #if 0
+  auto mps = mountpoints();
+  for (const auto &p : subtree_rev(mps, "/"))
+    std::println("{}", p.string());
+#endif
+
+#if 1
   Config conf;
   conf.init();
   conf.make_overlay();

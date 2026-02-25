@@ -3,9 +3,7 @@
 #pragma once
 
 #include <algorithm>
-#include <compare>
 #include <concepts>
-#include <exception>
 #include <filesystem>
 #include <format>
 #include <functional>
@@ -17,6 +15,7 @@
 
 #include <set>
 
+#include <fcntl.h>
 #include <unistd.h>
 
 template<typename T> concept has_no_cv = std::same_as<T, std::remove_cv_t<T>>;
@@ -74,7 +73,10 @@ struct RaiiHelper {
 
   // Make it easier to use RaiiHelper with pointers in C libraries
   template<std::same_as<T> U = T> requires std::is_pointer_v<U>
-  operator U() const { return t_; }
+  operator U() const
+  {
+    return t_;
+  }
   decltype(auto) operator->(this auto &&self) noexcept { return self.t_; }
 
   T release() noexcept { return std::exchange(t_, Empty); }
@@ -140,3 +142,33 @@ subtree_rev(const PathSet &s, const path &root)
 }
 
 PathSet mountpoints(path mountinfo = "/proc/self/mountinfo");
+
+enum class FollowLinks {
+  kNoFollow = 0,
+  kFollow = 1,
+};
+using enum FollowLinks;
+
+// Conservatively fails if file is not a regular file or cannot be
+// statted for any reason.
+bool is_fd_at_path(int targetfd, int dfd, path file,
+                   FollowLinks follow = kNoFollow,
+                   struct stat *sbout = nullptr);
+
+bool is_dir_empty(int dirfd);
+
+Fd ensure_dir(int dfd, path p, mode_t perm, FollowLinks follow);
+
+// Open an exclusive lockfile to guard one-time setup.  Might fail, in
+// which case re-check the need for setup and try again.
+Fd open_lockfile(int dfd, path file);
+
+std::string open_flags_to_string(int flags);
+
+inline Fd
+xopenat(int dfd, path file, int flags, mode_t mode = 0755)
+{
+  if (int fd = openat(dfd, file.c_str(), flags, mode); fd >= 0)
+    return fd;
+  syserr(R"(openat("{}", {})", file.string(), open_flags_to_string(flags));
+}

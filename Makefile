@@ -6,10 +6,19 @@ CXXFLAGS ?= -std=gnu++23 -Wall -Werror -ggdb
 CPPFLAGS += $(shell pkg-config --cflags mount)
 LDLIBS += $(shell pkg-config --libs mount)
 
-jai: jai.cc jai.h
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $< $(LDLIBS)
+OBJS = file.o jai.o
+
+all: jai
+
+jai: $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(LDLIBS)
+
+.c.o:
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -o $@ $<
+
+$(OBJS): jai.h
 
 clean:
 	rm -f jai *~ *.o
 
-.PHONY: clean
+.PHONY: all clean
