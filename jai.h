@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <sys/acl.h>
 #include <sys/mount.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 // Format error message and throw an exception that captures errno
@@ -149,15 +150,21 @@ subtree_rev(const PathSet &s, const path &root)
 
 std::string fdpath(int fd, bool must = false);
 
-PathSet mountpoints(path mountinfo = "/proc/self/mountinfo");
+PathSet mountpoints(const path &mountinfo = "/proc/self/mountinfo");
 
 // Calls fsconfig(FSCONFIG_CMD_CREATE) and fsmount.
 Fd make_mount(int conffd, int attr = MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV);
 
-Fd clone_tree(int dfd, path file = {}, bool recursive = false);
+Fd clone_tree(int dfd, const path &file = {}, bool recursive = false);
 
-void xmnt_move(int mountfd, int mountpointfd, path mountpointfile = {},
-               int flags = 0);
+void xmnt_move(int mountfd, const path &mountpath, int mountpointfd,
+               const path &mountpointfile, int flags);
+
+inline void
+xmnt_move(int mfd, int mpfd, const path &mpfile = {}, int flags = 0)
+{
+  xmnt_move(mfd, path{}, mpfd, mpfile, flags);
+}
 
 void xmnt_setattr(int fd, const mount_attr &a,
                   unsigned int flags = AT_RECURSIVE);
@@ -171,14 +178,16 @@ make_tmpfs(Opt... opt)
   Fd conf = fsopen("tmpfs", FSOPEN_CLOEXEC);
   if (!conf)
     syserr(R"(fsopen("tmpfs"))");
-  auto options = std::to_array<const char *>({opt...});
-  for (auto i = 0uz; i < options.size() - 1; i += 2)
-    if (fsconfig(*conf, FSCONFIG_SET_STRING, options[i], options[i + 1], 0))
-      syserr(R"(fsconfig(tmpfs, "{}", "{}"))", options[i], options[i + 1]);
+  if constexpr (sizeof...(Opt)) {
+    auto options = std::to_array<const char *>({opt...});
+    for (auto i = 0uz; i < options.size() - 1; i += 2)
+      if (fsconfig(*conf, FSCONFIG_SET_STRING, options[i], options[i + 1], 0))
+        syserr(R"(fsconfig(tmpfs, "{}", "{}"))", options[i], options[i + 1]);
+  }
   return make_mount(*conf);
 }
 
-void recursive_umount(path tree);
+void recursive_umount(const path &tree);
 
 enum class FollowLinks {
   kNoFollow = 0,
@@ -188,28 +197,41 @@ using enum FollowLinks;
 
 // Conservatively fails if file is not a regular file or cannot be
 // statted for any reason.
-bool is_fd_at_path(int targetfd, int dfd, path file,
+bool is_fd_at_path(int targetfd, int dfd, const path &file,
                    FollowLinks follow = kNoFollow,
                    struct stat *sbout = nullptr);
 
 bool is_dir_empty(int dirfd);
 
-Fd ensure_dir(int dfd, path p, mode_t perm, FollowLinks follow);
+Fd ensure_dir(int dfd, const path &p, mode_t perm, FollowLinks follow,
+              bool okay_if_not_root = false);
+
+bool is_mountpoint(int dfd, const path &file = {},
+                   FollowLinks follow = kNoFollow);
 
 // Open an exclusive lockfile to guard one-time setup.  Might fail, in
 // which case re-check the need for setup and try again.
-Fd open_lockfile(int dfd, path file);
+Fd open_lockfile(int dfd, const path &file);
 
 std::string open_flags_to_string(int flags);
 
 inline Fd
-xopenat(int dfd, path file, int flags, mode_t mode = 0755)
+xopenat(int dfd, const path &file, int flags, mode_t mode = 0755)
 {
   if (int fd = openat(dfd, file.c_str(), flags, mode); fd >= 0)
     return fd;
   syserr(R"(openat("{}", {}))",
          dfd >= 0 ? (fdpath(dfd) / file).string() : file.string(),
          open_flags_to_string(flags));
+}
+
+inline struct stat
+xfstat(int fd)
+{
+  struct stat sb;
+  if (fstat(fd, &sb))
+    syserr(R"(fstat("{}"))", fdpath(fd));
+  return sb;
 }
 
 using ACL = RaiiHelper<acl_free, acl_t>;

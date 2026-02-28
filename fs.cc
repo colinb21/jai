@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <libmount.h>
 #include <sys/file.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -14,6 +15,8 @@
 std::string
 fdpath(int fd, bool must)
 {
+  if (fd < 0 || fd == AT_FDCWD)
+    return ".";
   auto procfd = std::format("/proc/self/fd/{}", fd);
   std::error_code ec;
   auto res = std::filesystem::read_symlink(procfd, ec);
@@ -28,7 +31,7 @@ fdpath(int fd, bool must)
 }
 
 PathSet
-mountpoints(path mountinfo)
+mountpoints(const path &mountinfo)
 {
   RaiiHelper<mnt_unref_table> t = mnt_new_table();
   if (!t)
@@ -60,7 +63,7 @@ make_mount(int conffd, int attr)
 }
 
 Fd
-clone_tree(int dfd, path file, bool recursive)
+clone_tree(int dfd, const path &file, bool recursive)
 {
   int flags =
       AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW | OPEN_TREE_CLOEXEC | OPEN_TREE_CLONE;
@@ -72,9 +75,9 @@ clone_tree(int dfd, path file, bool recursive)
 }
 
 void
-xmnt_move(int mfd, int mpfd, path mpfile, int flags)
+xmnt_move(int mfd, const path &mfile, int mpfd, const path &mpfile, int flags)
 {
-  if (move_mount(mfd, "", mpfd, mpfile.c_str(),
+  if (move_mount(mfd, mfile.c_str(), mpfd, mpfile.c_str(),
                  flags | MOVE_MOUNT_F_EMPTY_PATH | MOVE_MOUNT_T_EMPTY_PATH))
     syserr("move_mount({}, {}/{})", fdpath(mfd), fdpath(mpfd), mpfile.string());
 }
@@ -96,7 +99,7 @@ xmnt_propagate(int fd, std::uint64_t propagation, bool recursive)
 }
 
 void
-recursive_umount(path tree)
+recursive_umount(const path &tree)
 {
   auto dirs = subtree_rev(mountpoints(), tree);
   for (const auto &dir : dirs) {
@@ -110,7 +113,7 @@ recursive_umount(path tree)
 }
 
 bool
-is_fd_at_path(int targetfd, int dfd, path file, FollowLinks follow,
+is_fd_at_path(int targetfd, int dfd, const path &file, FollowLinks follow,
               struct stat *sbout)
 {
   struct stat sbtmp, sbpath;
@@ -147,7 +150,8 @@ is_dir_empty(int dirfd)
 }
 
 Fd
-ensure_dir(int dfd, path p, mode_t perm, FollowLinks follow)
+ensure_dir(int dfd, const path &p, mode_t perm, FollowLinks follow,
+           bool okay_if_not_root)
 {
   assert(!p.empty());
 
@@ -171,15 +175,30 @@ ensure_dir(int dfd, path p, mode_t perm, FollowLinks follow)
   struct stat sb;
   if (fstat(*fd, &sb))
     syserr(R"(fstat("{}"))", p.string());
-  if (auto euid = geteuid(); sb.st_uid != euid)
-    err("{}: has uid {} should have {}", p.string(), sb.st_uid, euid);
+  if (!okay_if_not_root)
+    if (auto euid = geteuid(); sb.st_uid != euid)
+      err("{}: has uid {} should have {}", p.string(), sb.st_uid, euid);
   if (auto m = sb.st_mode & perm; m != (sb.st_mode & 07777) && fchmod(*fd, m))
     syserr(R"(fchmod("{}", {:o}))", p.string(), m);
   return fd;
 }
 
+bool
+is_mountpoint(int dfd, const path &file, FollowLinks follow)
+{
+  struct statx stx;
+  int flags = AT_EMPTY_PATH | AT_NO_AUTOMOUNT;
+  if (follow != kFollow)
+    flags |= AT_SYMLINK_NOFOLLOW;
+  if (statx(dfd, file.c_str(), flags, STATX_BASIC_STATS, &stx))
+    syserr(R"(statx("{}", "{}"))", fdpath(dfd), file.string());
+  if (!(stx.stx_attributes_mask & STATX_ATTR_MOUNT_ROOT))
+    err("statx does not support STATX_ATTR_MOUNT_ROOT");
+  return stx.stx_attributes & STATX_ATTR_MOUNT_ROOT;
+}
+
 Fd
-open_lockfile(int dfd, path file)
+open_lockfile(int dfd, const path &file)
 {
   assert(!file.empty());
 
