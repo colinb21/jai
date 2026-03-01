@@ -84,7 +84,14 @@ Config::init()
 
   auto realuid = getuid();
 
-  const char *envuser = user_.empty() ? getenv("SUDO_USER") : user_.c_str();
+  const char *envuser{};
+  if (!user_.empty())
+    envuser = user_.c_str();
+  else if (const char *u = getenv("SUDO_USER"))
+    envuser = u;
+  else if (const char *u = getenv("USER"))
+    envuser = u;
+
   if (realuid == 0 && envuser) {
     if (getpwnam_r(envuser, &pwbuf, buf, sizeof(buf), &pw))
       err("cannot find password entry for user {}", envuser);
@@ -198,7 +205,7 @@ Config::home()
   return *home_fd_;
 }
 
-std::vector default_blacklist = {
+const auto default_blacklist = std::to_array<const char *>({
     ".jai",
     ".ssh",
     ".gnupg",
@@ -219,7 +226,7 @@ std::vector default_blacklist = {
     ".config/BraveSoftware",
     ".bash_history",
     ".zsh_history",
-};
+});
 
 Fd
 Config::make_blacklist(int dfd, path name)
@@ -353,6 +360,60 @@ Config::unmount()
   unlinkat(run_jai(), user_.c_str(), AT_REMOVEDIR);
 }
 
+auto env_blacklist = std::to_array<const char *>({
+    // Azure
+    "AZURE_CLIENT_ID",
+    "AZURE_TENANT_ID",
+    // Databases (connection URIs contain embedded credentials)
+    "DATABASE_URL",
+    "MONGO_URI",
+    "MONGODB_URI",
+    "REDIS_URL",
+    // GCP
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    // Docker / K8s
+    "KUBECONFIG",
+    // Bitbucket
+    "BB_AUTH_STRING",
+    // Sentry
+    "SENTRY_DSN",
+    // Slack
+    "SLACK_WEBHOOK_URL",
+});
+
+auto env_suffix_blacklist = std::to_array<const char *>({
+    "_ACCESS_KEY", "_API_KEY",     "_APIKEY",
+    "_AUTH",       "_AUTH_TOKEN",  "_CONNECTION_STRING",
+    "_CREDENTIAL", "_CREDENTIALS", "_PASSWD",
+    "_PASSWORD",   "_PID",         "_PRIVATE_KEY",
+    "_PWD",        "_SECRET",      "_SECRET_KEY",
+    "_SOCK",       "_SOCKET",      "_SOCKET_PATH",
+    "_TOKEN",
+});
+
+extern "C" char **environ;
+
+void
+sanitize_env()
+{
+  for (const char *v : env_blacklist)
+    unsetenv(v);
+
+  std::vector<std::string> to_remove;
+  for (char **v = environ; *v; ++v) {
+    std::string_view sv(*v);
+    if (auto eq = sv.find('='); eq != sv.npos)
+      sv = sv.substr(0, eq);
+    for (std::string_view s : env_suffix_blacklist)
+      if (sv.ends_with(s)) {
+        to_remove.push_back(*v);
+        break;
+      }
+  }
+  for (const auto &v : to_remove)
+    unsetenv(v.c_str());
+}
+
 void
 Config::run(int nsfd, const path &cwd, char **argv)
 {
@@ -377,9 +438,7 @@ Config::run(int nsfd, const path &cwd, char **argv)
     syserr("setuid");
   if (chdir(cwd.c_str()))
     syserr("chdir({})", cwd.string());
-  for (auto var :
-       {"SSH_AUTH_SOCK", "SSH_AGENT_PID", "GITHUB_TOKEN", "IPMI_PASSWORD"})
-    unsetenv(var);
+  sanitize_env();
   execvp(argv[0], argv);
   perror(argv[0]);
   _exit(1);
@@ -392,8 +451,8 @@ usage(int status)
                R"(usage: {0} [-u | [-D | -d dir ...] cmd [arg...]]
    no arguments  create sandboxed-home under {1}
    -u            unmount sandboxed-home
-   -d dir        provide full access to dir
-   -D            don't include cwd by default if no -d)",
+   -d dir        provide unrestricted access to dir in addition to $PWD
+   -D            don't provide unrestricted access to $PWD)",
                prog.filename().string(), kRunRoot);
   exit(status);
 }
@@ -407,13 +466,13 @@ do_main(int argc, char **argv)
 
   bool opt_u{}, opt_D{};
   std::vector<path> opt_d;
-  path cwd = std::filesystem::current_path();
+  path cwd = canonical(std::filesystem::current_path());
 
   int opt;
   while ((opt = getopt(argc, argv, "+d:Duh")) != -1)
     switch (opt) {
     case 'd':
-      opt_d.emplace_back(std::filesystem::canonical(optarg));
+      opt_d.emplace_back(canonical(path(optarg)));
       break;
     case 'u':
       opt_u = true;
@@ -431,12 +490,12 @@ do_main(int argc, char **argv)
 
   std::vector<char *> cmd(argv + optind, argv + argc);
   if (opt_u) {
-    if (!opt_d.empty() || !cmd.empty())
+    if (opt_D || !opt_d.empty() || !cmd.empty())
       usage(2);
     conf.unmount();
     return;
   }
-  if (opt_d.empty() && !opt_D)
+  if (!opt_D && !std::ranges::contains(opt_d, cwd))
     opt_d.emplace_back(cwd);
 
   auto fd = conf.make_ns(opt_d);

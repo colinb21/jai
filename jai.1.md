@@ -1,6 +1,6 @@
 % jai(1)
 % David Mazieres
-% 
+%
 
 # NAME
 
@@ -16,11 +16,11 @@ jai - Jail an AI agent
 
 `jai` is a super lightweight sandbox for AI agents requiring almost no
 configuration.  It provides only casual security, so is not a
-substitute for using a proper container to confine agents.  However it
-is a great alternative to using no protection when you are thinking of
-giving an agent full control of your account and all its files.
-Compared to the later, `jai` can reduce the blast radius should things
-go wrong.
+substitute for using a proper container to confine agents.  However,
+it is a great alternative to using no protection when you are thinking
+of giving an agent full control of your account and all its files.
+Compared to the latter, `jai` can reduce the blast radius should
+things go wrong.
 
 Before using `jai`, if your home directory is on NFS, make
 `$HOME/.jai` a symbolic link to a directory you own on a local file
@@ -49,32 +49,34 @@ assistant.
 
     jai codex
 
-    jai opencode
+    mkdir -p ~/.local/share/opencode
+    jai -d $PWD -d $HOME/.config/opencode -d $HOME/.local/share/opencode opencode
 
 # OPTIONS
 
 `-d` *dir*
 : Grant full access to directory *dir* and everything below in the
-  jail.  You must own the directory.  This option implies `-D`--if you
-  want to grant access to multiple directories and the current working
-  directory, supply the current working directory as one of the `-d`
-  options.
+  jail.  You must own the directory.  You can supply this option
+  multiple times.
 
 `-D`
-: By default if you don't use `-d`, `jai` will grant access to the
-  current working directory and anything below.  `-D` suppresses this
-  behavior so that no directories are granted at all.
+: By default, `jai` grants access to the current working directory
+  even if it is not specified with `-d`.  This option suppresses that
+  option.  If you run with `-D` and no `-d` options, your entire home
+  directory will be copy-on-write and nothing will be directly
+  exported.
 
 `-u`
 : Removes the sandboxed home directory from `/run/jai`.
 
-# ENvIRONMENT
+# ENVIRONMENT
 
-`SUDO_USER`
-: If run with real UID 0 and this environment variable exists, it will
-  be taken as the user whose home directory should be sandboxed.  This
-  makes it convenient to run `jai` via `sudo` if you don't want to
-  install it setuid root.
+`SUDO_USER`, `USER`
+: If run with real UID 0 and either of these environment variables
+  exists, it will be taken as the user whose home directory should be
+  sandboxed.  This makes it convenient to run `jai` via `sudo` if you
+  don't want to install it setuid root.  If both are set, `SUDO_USER`
+  takes precedence.
 
 # FILES
 
@@ -99,3 +101,31 @@ assistant.
 `/run/jai/$USER/tmp`
 : Private `/tmp` and `/var/tmp` directory made available in the jail.
 
+# BUGS
+
+Overlayfs needs an empty directory `$HOME/.jai/work`, into which it
+places two root-owned directories `index` and `work`.  Usually these
+directories are empty when the file system is unmounted.  However,
+occasionally they contain files, in which case it requires root
+privileges to delete the directories.  (A user can still move
+`$HOME/.jai/work` out of the way if `jai` won't restart, but it's
+annoying not to be able to clean up completely without root.)
+
+In general overlayfs can be flaky.  If the attributes on the `changes`
+directory get out of sync, it may require making a new `changes`
+directory to get around mounting errors.
+
+The initial file blacklist is hard-coded, but should support a
+configuration file.
+
+`jai` removes a few hard-coded environment variables and suffixes,
+such as anything ending `_PID`, `_SOCK`, or `_TOKEN`, or `_PASSWORD`,
+but otherwise requires a wrapper to clean the environment if you are
+in the habit of storing secrets there.  If you actually want to pass
+these environment variables through, you will have to launder them
+through some other variable name.  There should be a configuration
+file.
+
+There is only one sandboxed home directory per user, so if you run
+multiple sandboxed agents, they will have access to each other's
+credentials unless you pass through the directory with `-d`.
