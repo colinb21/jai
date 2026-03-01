@@ -38,16 +38,8 @@ struct Config {
   Fd run_jai_user_fd_;
 
   void init();
-  void reset()
-  {
-    home_fd_.reset();
-    home_jai_fd_.reset();
-    run_jai_fd_.reset();
-    run_jai_user_fd_.reset();
-  }
-
   Fd make_ns(const std::vector<path> &);
-
+  void run(int nsfd, const path &cwd, char **argv);
   void unmount();
 
   [[nodiscard]] Defer asuser();
@@ -314,7 +306,7 @@ Config::make_ns(const std::vector<path> &dirs)
   Fd newns = xopenat(-1, "/proc/self/ns/mnt", O_RDONLY);
   xmnt_setattr(-1, "/",
                mount_attr{
-                   .attr_set = MOUNT_ATTR_RDONLY,
+                   .attr_set = MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID,
                    .propagation = MS_PRIVATE,
                });
 
@@ -338,11 +330,11 @@ Config::make_ns(const std::vector<path> &dirs)
     xmnt_move(*src, *dst);
   }
 
+#if 0
   restore.reset();
-  // XXX - for testing
-  Fd ns = xopenat(run_jai_user(), "ns", O_CREAT | O_RDWR, 0600);
-  xmnt_move(*clone_tree(*newns), *ns);
-
+  xmnt_move(*clone_tree(*newns),
+            *xopenat(run_jai_user(), "ns", O_CREAT | O_RDWR, 0600));
+#endif
   return newns;
 }
 
@@ -361,16 +353,94 @@ Config::unmount()
   unlinkat(run_jai(), user_.c_str(), AT_REMOVEDIR);
 }
 
+void
+Config::run(int nsfd, const path &cwd, char **argv)
+{
+  setns(nsfd, CLONE_NEWNS);
+  unshare(CLONE_NEWPID);
+  if (auto pid = fork(); pid < 0)
+    syserr("fork");
+  else if (pid != 0) {
+    int status;
+    while (waitpid(pid, &status, 0) && errno == EINTR)
+      ;
+    if (WIFEXITED(status))
+      exit(WEXITSTATUS(status));
+    if (WIFSIGNALED(status)) {
+      signal(WTERMSIG(status), SIG_DFL);
+      raise(WTERMSIG(status));
+    }
+    _exit(1);
+  }
+
+  if (setuid(uid_))
+    syserr("setuid");
+  if (chdir(cwd.c_str()))
+    syserr("chdir({})", cwd.string());
+  execvp(argv[0], argv);
+  perror(argv[0]);
+  _exit(1);
+}
+
 [[noreturn]] static void
 usage(int status)
 {
-  std::println(status ? stderr : stdout, R"(usage:
-   {0}                            create sandboxed-home under {1}
-   {0} -u                         unmount sandboxed-home
-   {0} cmd [arg...]               run cmd with access to cwd
-   {0} -d dir [-d dir...] cmd...  run cmd with access to specified dirs)",
+  std::println(status ? stderr : stdout,
+               R"(usage: {0} [-u | [-D | -d dir ...] cmd [arg...]]
+   no arguments  create sandboxed-home under {1}
+   -u            unmount sandboxed-home
+   -d dir        provide full access to dir
+   -D            don't include cwd by default if no -d)",
                prog.filename().string(), kRunRoot);
   exit(status);
+}
+
+void
+do_main(int argc, char **argv)
+{
+  Config conf;
+  conf.init();
+  auto restore = conf.asuser();
+
+  bool opt_u{}, opt_D{};
+  std::vector<path> opt_d;
+  path cwd = std::filesystem::current_path();
+
+  int opt;
+  while ((opt = getopt(argc, argv, "+d:Duh")) != -1)
+    switch (opt) {
+    case 'd':
+      opt_d.emplace_back(std::filesystem::canonical(optarg));
+      break;
+    case 'u':
+      opt_u = true;
+      break;
+    case 'D':
+      opt_D = true;
+      break;
+    case 'h':
+      usage(0);
+    default:
+      usage(2);
+    }
+
+  restore.reset();
+
+  std::vector<char *> cmd(argv + optind, argv + argc);
+  if (opt_u) {
+    if (!opt_d.empty() || !cmd.empty())
+      usage(2);
+    conf.unmount();
+    return;
+  }
+  if (opt_d.empty() && !opt_D)
+    opt_d.emplace_back(cwd);
+
+  auto fd = conf.make_ns(opt_d);
+  if (!cmd.empty()) {
+    cmd.push_back(nullptr);
+    conf.run(*fd, cwd, cmd.data());
+  }
 }
 
 int
@@ -382,50 +452,11 @@ main(int argc, char **argv)
   else
     prog = "jai";
 
-  bool opt_u{};
-  std::vector<path> opt_d;
-
-  int opt;
-  while ((opt = getopt(argc, argv, "+d:uh")) != -1)
-    switch (opt) {
-    case 'd':
-      opt_d.push_back(optarg);
-      break;
-    case 'u':
-      opt_u = true;
-      break;
-    case 'h':
-      usage(0);
-    default:
-      usage(2);
-    }
-
-  std::vector<char *> cmd(argv + optind, argv + argc);
-  if (opt_u && (!opt_d.empty() || !cmd.empty()))
-    usage(2);
-
-  auto go = [&] {
-    Config conf;
-    conf.init();
-
-    if (opt_u) {
-      conf.unmount();
-      exit(0);
-    }
-
-    auto fd = conf.make_ns(opt_d);
-    exit(0);
-  };
-
-#if 1
-  go(); // make exceptions crash
-#else
   try {
-    go();
+    do_main(argc, argv);
   } catch (const std::exception &e) {
-    std::println(stderr, "{}: {}", prog.filename().string(), e.what());
+    std::println(stderr, "{}: {}", prog.string(), e.what());
     return 1;
   }
-#endif
   return 0;
 }
