@@ -312,18 +312,24 @@ Fd
 Config::make_ns(const std::vector<path> &dirs)
 {
   Fd oldns = xopenat(-1, "/proc/self/ns/mnt", O_RDONLY);
-  Defer restore{[fd = *oldns] { setns(fd, CLONE_NEWNS); }};
+  Defer restore{[fd = *oldns] {
+    if (setns(fd, CLONE_NEWNS)) {
+      std::println("setns(CLONE_NEWNS): {}", strerror(errno));
+      exit(1);
+    }
+  }};
+
   const mount_attr attr{
       .attr_set = MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV,
       .propagation = MS_PRIVATE,
   };
-
   Fd tmp = clone_tree(*make_private_tmp());
   xmnt_setattr(*tmp, attr);
   Fd home = clone_tree(*make_home_overlay());
   xmnt_setattr(*home, attr);
 
-  unshare(CLONE_NEWNS);
+  if (unshare(CLONE_NEWNS))
+    syserr("unshare(CLONE_NEWNS)");
   Fd newns = xopenat(-1, "/proc/self/ns/mnt", O_RDONLY);
   xmnt_setattr(-1, "/",
                mount_attr{
@@ -342,11 +348,13 @@ Config::make_ns(const std::vector<path> &dirs)
   for (auto d : dirs) {
     if (d.is_relative())
       d = "/" / d;
-    setns(*oldns, CLONE_NEWNS);
+    if (setns(*oldns, CLONE_NEWNS))
+      syserr("setns(CLONE_NEWNS)");
     Fd src = clone_tree(*xopenat(-1, d, O_DIRECTORY | O_PATH));
     check_user(*src);
     xmnt_setattr(*src, attr);
-    setns(*newns, CLONE_NEWNS);
+    if (setns(*newns, CLONE_NEWNS))
+      syserr("setns(CLONE_NEWNS)");
     Fd dst = xopenat(-1, d, O_DIRECTORY | O_PATH);
     check_user(*dst);
     xmnt_move(*src, *dst);
@@ -432,8 +440,10 @@ sanitize_env()
 void
 Config::run(int nsfd, const path &cwd, char **argv)
 {
-  setns(nsfd, CLONE_NEWNS);
-  unshare(CLONE_NEWPID);
+  if (setns(nsfd, CLONE_NEWNS))
+    syserr("setns(CLONE_NEWNS)");
+  if (unshare(CLONE_NEWPID))
+    syserr("unshare(CLONE_NEWPID)");
   if (auto pid = fork(); pid < 0)
     syserr("fork");
   else if (pid != 0) {
