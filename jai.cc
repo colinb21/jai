@@ -43,7 +43,7 @@ struct Config {
   void unmount();
 
   [[nodiscard]] Defer asuser();
-  void check_user(int fd);
+  void check_user(int fd, std::string path_for_error = {});
 
   int home();
   int home_jai();
@@ -138,10 +138,11 @@ Config::asuser()
 }
 
 void
-Config::check_user(int fd)
+Config::check_user(int fd, std::string p)
 {
   if (auto sb = xfstat(fd); sb.st_uid != uid_)
-    err("{}: owned by {} should be owned by {}", fdpath(fd), sb.st_uid, uid_);
+    err("{}: owned by {} should be owned by {}", p.empty() ? fdpath(fd) : p,
+        sb.st_uid, uid_);
 }
 
 int
@@ -350,12 +351,12 @@ Config::make_ns(const std::vector<path> &dirs)
     if (setns(*oldns, CLONE_NEWNS))
       syserr("setns(CLONE_NEWNS)");
     Fd src = clone_tree(*xopenat(-1, d, O_DIRECTORY | O_PATH | O_CLOEXEC));
-    check_user(*src);
+    check_user(*src, d);
     xmnt_setattr(*src, attr);
     if (setns(*newns, CLONE_NEWNS))
       syserr("setns(CLONE_NEWNS)");
     Fd dst = xopenat(-1, d, O_DIRECTORY | O_PATH | O_CLOEXEC);
-    check_user(*dst);
+    check_user(*dst, d);
     xmnt_move(*src, *dst);
   }
 
