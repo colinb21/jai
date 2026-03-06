@@ -8,7 +8,7 @@ jai - Jail an AI agent
 
 # SYNOPSIS
 
-`jai` [`-d` *dir*] [`-D`] *cmd* [*arg* ...] \
+`jai` [`-d` *dir*] [`-h` *name*] [`-D`] *cmd* [*arg* ...] \
 `jai` \
 `jai` `-u`
 
@@ -71,6 +71,10 @@ flag.
   behavior.  If you run with `-D` and no `-d` options, your entire
   home directory will be copy-on-write and nothing will be directly
   exported.
+
+`-h` *name*
+: Instead of using an overlay of your home directory, start with a new
+  home directory stored under `$HOME/.jai/`*name*.
 
 `-u`
 : Removes the sandboxed home directory from `/run/jai`.  This also

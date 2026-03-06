@@ -39,6 +39,7 @@ struct Config {
   uid_t uid_ = -1;
   gid_t gid_ = -1;
   path homepath_;
+  path fake_home_;
 
   Fd home_fd_;
   Fd home_jai_fd_;
@@ -47,11 +48,19 @@ struct Config {
 
   void init();
   Fd make_ns(const std::vector<path> &);
-  void run(int nsfd, const path &cwd, char **argv);
+  void exec(int nsfd, const path &cwd, char **argv);
   void unmount();
 
   [[nodiscard]] Defer asuser();
   void check_user(int fd, std::string path_for_error = {});
+  Fd ensure_udir(int dfd, const path &p, mode_t perm = 0700,
+                 FollowLinks follow = kFollow)
+  {
+    auto _restore = asuser();
+    Fd fd = ensure_dir(dfd, p, perm, follow);
+    check_user(*fd);
+    return fd;
+  }
 
   int home();
   int home_jai();
@@ -156,11 +165,8 @@ Config::check_user(int fd, std::string p)
 int
 Config::home_jai()
 {
-  if (!home_jai_fd_) {
-    auto restore = asuser();
-    home_jai_fd_ = ensure_dir(home(), ".jai", 0700, kFollow);
-    check_user(*home_jai_fd_);
-  }
+  if (!home_jai_fd_)
+    home_jai_fd_ = ensure_udir(home(), ".jai");
   return *home_jai_fd_;
 }
 
@@ -283,8 +289,7 @@ Config::make_home_overlay()
 
   auto restore = asuser();
   Fd changes = make_blacklist(home_jai(), "changes");
-  Fd work = ensure_dir(home_jai(), "work", 0700, kFollow);
-  check_user(*work);
+  Fd work = ensure_udir(home_jai(), "work");
   restore.reset();
 
   Fd fsfd = xfsopen("overlay", "jai-home");
@@ -320,7 +325,7 @@ Fd
 Config::make_ns(const std::vector<path> &dirs)
 {
   Fd oldns = xopenat(-1, "/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC);
-  Defer restore{[fd = *oldns] { xsetns(fd, CLONE_NEWNS); }};
+  Defer _restore_ns{[fd = *oldns] { xsetns(fd, CLONE_NEWNS); }};
 
   const mount_attr attr{
       .attr_set = MOUNT_ATTR_NOSUID | MOUNT_ATTR_NODEV,
@@ -328,7 +333,12 @@ Config::make_ns(const std::vector<path> &dirs)
   };
   Fd tmp = clone_tree(*make_private_tmp());
   xmnt_setattr(*tmp, attr);
-  Fd home = clone_tree(*make_home_overlay());
+
+  Fd home;
+  if (fake_home_.empty())
+    home = clone_tree(*make_home_overlay());
+  else
+    home = clone_tree(*ensure_udir(home_jai(), fake_home_));
   xmnt_setattr(*home, attr);
 
   if (unshare(CLONE_NEWNS))
@@ -352,12 +362,21 @@ Config::make_ns(const std::vector<path> &dirs)
     if (d.is_relative())
       d = "/" / d;
     xsetns(*oldns, CLONE_NEWNS);
-    Fd src = clone_tree(*xopenat(-1, d, O_DIRECTORY | O_PATH | O_CLOEXEC));
-    check_user(*src, d);
+    auto restore_root = asuser();
+    Fd src = xopenat(-1, d, O_DIRECTORY | O_PATH | O_CLOEXEC);
+    restore_root.reset();
+    src = clone_tree(*src);
     xmnt_setattr(*src, attr);
+
     xsetns(*newns, CLONE_NEWNS);
-    Fd dst = xopenat(-1, d, O_DIRECTORY | O_PATH | O_CLOEXEC);
+    restore_root = asuser();
+    Fd dst;
+    if (fake_home_.empty())
+      dst = xopenat(-1, d, O_DIRECTORY | O_PATH | O_CLOEXEC);
+    else
+      dst = ensure_udir(-1, d);
     check_user(*dst, d);
+    restore_root.reset();
     xmnt_move(*src, *dst);
   }
 
@@ -434,7 +453,7 @@ sanitize_env()
 }
 
 void
-Config::run(int nsfd, const path &cwd, char **argv)
+Config::exec(int nsfd, const path &cwd, char **argv)
 {
   xsetns(nsfd, CLONE_NEWNS);
   if (unshare(CLONE_NEWPID | CLONE_NEWIPC))
@@ -483,10 +502,11 @@ Config::run(int nsfd, const path &cwd, char **argv)
 usage(int status)
 {
   std::println(status ? stderr : stdout,
-               R"(usage: {0} [-u | [-D | -d dir ...] cmd [arg...]]
+               R"(usage: {0} [-u | [-D] [-H NAME] [-d DIR ...] CMD [ARG...]]
    no arguments  create sandboxed-home under {1}
    -u            unmount sandboxed-home
-   -d dir        provide unrestricted access to dir in addition to $PWD
+   -h NAME       use $HOME/.jai/NAME as home directory
+   -d DIR        provide unrestricted access to DIR in addition to $PWD
    -D            don't provide unrestricted access to $PWD)",
                prog.filename().string(), kRunRoot);
   exit(status);
@@ -504,7 +524,7 @@ do_main(int argc, char **argv)
   path cwd = canonical(std::filesystem::current_path());
 
   int opt;
-  while ((opt = getopt(argc, argv, "+d:Duh")) != -1)
+  while ((opt = getopt(argc, argv, "+d:Duh:H")) != -1)
     switch (opt) {
     case 'd':
       opt_d.emplace_back(canonical(path(optarg)));
@@ -515,8 +535,19 @@ do_main(int argc, char **argv)
     case 'D':
       opt_D = true;
       break;
-    case 'h':
+    case 'H':
       usage(0);
+      break;
+    case 'h':
+      conf.fake_home_ = optarg;
+      if (conf.fake_home_.is_absolute() ||
+          std::ranges::distance(conf.fake_home_.begin(),
+                                conf.fake_home_.end()) != 1 ||
+          conf.fake_home_.c_str()[0] == '.') {
+        std::println(stderr, "{}: invalid home directory name", optarg);
+        usage(2);
+      }
+      break;
     default:
       usage(2);
     }
@@ -553,7 +584,7 @@ do_main(int argc, char **argv)
   auto fd = conf.make_ns(opt_d);
   if (!cmd.empty()) {
     cmd.push_back(nullptr);
-    conf.run(*fd, cwd, cmd.data());
+    conf.exec(*fd, cwd, cmd.data());
   }
 }
 
