@@ -30,6 +30,26 @@ fdpath(int fd, bool must)
   return res;
 }
 
+std::string
+fdpath(int fd, const path &file, bool must)
+{
+  if (fd < 0 || fd == AT_FDCWD || file.is_absolute())
+    return file.empty() ? "." : file.string();
+  auto procfd = std::format("/proc/self/fd/{}", fd);
+  std::error_code ec;
+  auto res = std::filesystem::read_symlink(procfd, ec);
+  if (ec) {
+    if (must) {
+      errno = ec.value();
+      syserr("{}", procfd);
+    }
+    res = std::format("fd {} [can't determine path]", fd, ec.message());
+  }
+  if (!file.empty())
+    res = res / file;
+  return res;
+}
+
 PathSet
 mountpoints(const path &mountinfo)
 {
@@ -92,8 +112,7 @@ xmnt_move(int fromfd, const path &fromfile, int tofd, const path &tofile,
 {
   if (move_mount(fromfd, fromfile.c_str(), tofd, tofile.c_str(),
                  flags | MOVE_MOUNT_F_EMPTY_PATH | MOVE_MOUNT_T_EMPTY_PATH))
-    syserr("move_mount({}, {}/{})", fdpath(fromfd), fdpath(tofd),
-           tofile.string());
+    syserr("move_mount({}, {})", fdpath(fromfd), fdpath(tofd, tofile));
 }
 
 void
@@ -230,7 +249,7 @@ open_lockfile(int dfd, const path &file)
         // expect the invoker to call again if setup isn't complete.
         fd.reset();
       else if (!S_ISREG(sb.st_mode))
-        err("{}/{}: expected regular file", fdpath(dfd), file.string());
+        err("{}: expected regular file", fdpath(dfd, file));
       return fd;
     }
     if (errno != EWOULDBLOCK && errno != EINTR)

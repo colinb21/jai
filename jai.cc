@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include "jai.h"
 #include "cred.h"
 #include "fs.h"
@@ -574,6 +576,8 @@ enum long_options {
   OPT_HELP = 257,
 };
 static const option long_options[] = {
+    {"nocwd", no_argument, nullptr, 'D'},
+    {"dir", no_argument, nullptr, 'd'},
     {"version", no_argument, nullptr, OPT_VERSION},
     {"help", no_argument, nullptr, OPT_HELP},
     {nullptr, 0, nullptr, 0}};

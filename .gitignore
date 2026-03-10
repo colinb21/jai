@@ -8,6 +8,8 @@
 /Makefile.in
 /aclocal.m4
 /autom4te.cache/
+/config.h
+/config.h.in
 /config.log
 /config.status
 /configure
@@ -18,4 +20,5 @@
 /jai.1
 /jai.conf
 /missing
+/stamp-h1
 compile_commands.json

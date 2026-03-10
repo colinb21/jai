@@ -1,5 +1,7 @@
-AC_INIT([jai], [0.1], [https://www.scs.stanford.edu/~dm/addr/])
+AC_INIT([jai], [0.1], [https://www.scs.stanford.edu/~dm/addr/],,
+        https://github.com/stanford-scs/jai)
 AM_INIT_AUTOMAKE([foreign -Wall -Werror])
+AC_CONFIG_HEADERS([config.h])
 
 : ${CXXLANG=-std=gnu++23}
 
