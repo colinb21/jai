@@ -16,5 +16,6 @@
 /jai
 /jai-*.tar.gz
 /jai.1
+/jai.conf
 /missing
 compile_commands.json

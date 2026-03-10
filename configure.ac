@@ -17,5 +17,22 @@ AC_LANG_POP([C++])
 PKG_CHECK_MODULES([MOUNT], [mount])
 PKG_CHECK_MODULES([LIBACL], [libacl])
 
-AC_CONFIG_FILES([Makefile])
+# --with-untrusted-user=USER (default: auto-detect from password file or "jai")
+AC_ARG_WITH([untrusted-user],
+  [AS_HELP_STRING([--with-untrusted-user=USER],
+    [name of untrusted sandbox user (default: autodetect or jai)])],
+  [UNTRUSTED_USER="$withval"],
+  [UNTRUSTED_USER=""])
+
+AS_IF([test -z "$UNTRUSTED_USER"], [
+  UNTRUSTED_USER=$(getent passwd 2>/dev/null | \
+    awk -F: '$3 != 0 && $5 == "JAI sandbox untrusted user" { print $1; exit }')
+  AS_IF([test -z "$UNTRUSTED_USER"], [UNTRUSTED_USER=jai])
+])
+AC_MSG_NOTICE([untrusted user: $UNTRUSTED_USER])
+AC_SUBST([UNTRUSTED_USER])
+AC_DEFINE_UNQUOTED([UNTRUSTED_USER], ["$UNTRUSTED_USER"],
+  [Username for the sandboxed untrusted user])
+
+AC_CONFIG_FILES([Makefile jai.conf])
 AC_OUTPUT

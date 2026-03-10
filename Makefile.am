@@ -10,9 +10,15 @@ jai.1: jai.1.md
 	-pandoc -s -w man jai.1.md -o jai.1
 
 sysusersdir = $(prefix)/lib/sysusers.d
-dist_sysusers_DATA = jai.conf
+sysusers_DATA = jai.conf
 
-EXTRA_DIST = jai.1 jai.1.md logo.svg
+EXTRA_DIST = jai.1 jai.1.md jai.conf.in logo.svg
+
+CLEANFILES = *~
+DISTCLEANFILES = jai.conf
+
+distclean-local:
+	-rm -rf .deps
 
 MAINTAINERCLEANFILES = \
 	jai.1 \
@@ -31,8 +37,8 @@ install-data-hook:
 	test ! -r $(DESTDIR)/etc/passwd || systemd-sysusers --root=$(DESTDIR)/
 
 uninstall-hook:
-	@if gecos=$$(getent passwd jai 2>/dev/null | cut -d: -f5) \
+	@if gecos=$$(getent passwd @UNTRUSTED_USER@ 2>/dev/null | cut -d: -f5) \
 	    && test "$$gecos" = "JAI sandbox untrusted user"; then \
-	  echo "userdel jai"; \
-	  userdel jai; \
+	  echo "userdel @UNTRUSTED_USER@"; \
+	  userdel @UNTRUSTED_USER@; \
 	fi

@@ -24,7 +24,7 @@
 
 path prog;
 
-constexpr const char *kUnstrustedUser = "jai";
+constexpr const char *kUnstrustedUser = UNTRUSTED_USER;
 constexpr const char *kRunRoot = "/run/jai";
 constexpr const char *kSB = "sandboxed-home";
 
