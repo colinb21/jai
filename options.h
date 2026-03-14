@@ -13,9 +13,8 @@
 #include <ranges>
 #include <span>
 #include <utility>
-#include <vector>
 
-namespace options {
+namespace parseopt {
 
 using std::size_t;
 
@@ -101,13 +100,12 @@ struct Option : std::string_view {
   }
 };
 
-struct Options {
+class Options {
+public:
   using enum Action::HasArg;
-  std::map<std::string, std::shared_ptr<Action>, std::less<>> actions_;
-  std::string help_;
 
-  Options &add(std::initializer_list<Option> options, is_action auto f,
-               std::string help = {}, std::string valname = {})
+  Options &operator()(std::initializer_list<Option> options, is_action auto f,
+                      std::string helpstr = {}, std::string valname = {})
   {
     auto action = std::make_shared<ActionImpl<decltype(f)>>(std::move(f));
     if (valname.empty())
@@ -115,7 +113,7 @@ struct Options {
     std::string optstr;
     for (const auto &opt : options) {
       actions_[std::string(opt)] = action;
-      if (help.empty())
+      if (helpstr.empty())
         continue;
       if (!optstr.empty())
         optstr += ", ";
@@ -132,26 +130,19 @@ struct Options {
           optstr += ']';
       }
     }
-    if (!help.empty()) {
+    if (!helpstr.empty()) {
       if (auto sz = optstr.size(); sz < 13)
-        help_ += std::format("  {}{:<{}}{}\n", optstr, "", 14 - sz, help);
+        help_ += std::format("  {}  {}\n", optstr, helpstr);
       else
-        help_ += std::format("  {}\n    {}\n", optstr, help);
+        help_ += std::format("  {}\n        {}\n", optstr, helpstr);
     }
     return *this;
   }
 
-  Options &add(Option opt, is_action auto f, std::string help = {},
-               std::string valname = {})
+  Options &operator()(Option opt, is_action auto f, std::string helpstr = {},
+                      std::string valname = {})
   {
-    return add({opt}, std::move(f), std::move(help), std::move(valname));
-  }
-
-  Action &getopt(std::string_view opt)
-  {
-    if (auto it = actions_.find(opt); it != actions_.end())
-      return *it->second;
-    err<OptionError>("unknown option {}", opt);
+    return (*this)({opt}, std::move(f), std::move(helpstr), std::move(valname));
   }
 
   template<std::convertible_to<std::string_view> S>
@@ -229,8 +220,21 @@ struct Options {
       parse_cli(std::span{&opt, 1});
     }
   }
+
+  const std::string &help() const { return help_; }
+
+private:
+  std::map<std::string, std::shared_ptr<Action>, std::less<>> actions_;
+  std::string help_;
+
+  Action &getopt(std::string_view opt)
+  {
+    if (auto it = actions_.find(opt); it != actions_.end())
+      return *it->second;
+    err<OptionError>("unknown option {}", opt);
+  }
 };
 
-} // namespace options
+} // namespace parseopt
 
-using options::Options;
+using parseopt::Options;
