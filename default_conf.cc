@@ -2,11 +2,9 @@
 #include "jai.h"
 
 const std::string default_conf =
-    R"(# Instead of copying this file to create a new configuration, you can
-# it the file by referernce using a conf command.  Don't uncomment in
-# this example line default.conf or you will create a loop.  Example:
-#
-# conf default.conf
+    R"(# Note: instead of copying this file to create a custom configuration
+# for certain commands, you can include this file by referernce with a
+# line "conf default.conf" in your new configuration file.
 
 # The default mode is strict for all named sandboxes and casual for
 # the default sandbox.  A strict sandbox runs under the dedicated jai
@@ -17,6 +15,14 @@ const std::string default_conf =
 
 # casual
 # strict
+
+# You can use use "name NAME" to specify different sandboxes.  For
+# casual sandboxes, the sandboxed home directory will be in
+# /run/jai/$USER/NAME.home, and changed files will be in
+# $HOME/.jai/NAME.changes.  For strict sandboxes, the home directory
+# will be $HOME/.jai/NAME.home.
+
+name default
 
 # jai launches programs in a sandbox by running bash with the command
 # name in "$0" and the arguments in "@".  bash will have a PID 1,
