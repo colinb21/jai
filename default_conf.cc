@@ -20,9 +20,12 @@ const std::string default_conf =
 # casual sandboxes, the sandboxed home directory will be in
 # /run/jai/$USER/NAME.home, and changed files will be in
 # $HOME/.jai/NAME.changes.  For strict sandboxes, the home directory
-# will be $HOME/.jai/NAME.home.
+# will be $HOME/.jai/NAME.home.  If you leave it undefined, the name
+# will be "default" and the mode will default to casual, but if you
+# define this to anything including "default", then the mode will be
+# strict.
 
-name default
+# name default
 
 # jai launches programs in a sandbox by running bash with the command
 # name in "$0" and the arguments in "@".  bash will have a PID 1,
