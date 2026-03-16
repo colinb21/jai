@@ -123,7 +123,9 @@ virtual environment before running the command.
 `-d` *dir*, `--dir `*dir*
 : Grant full access to directory *dir* and everything below in the
   jail.  You must own the directory.  You can supply this option
-  multiple times.
+  multiple times.  Note that on the command line, relative paths are
+  relative to the current working directory, while in configuration
+  files, they are relative to your home directory.
 
 `-D`, `--nocwd`
 : By default, `jai` grants access to the current working directory

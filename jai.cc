@@ -29,7 +29,8 @@ struct Config {
   path cwd_;
   std::string shellcmd_;
   PathSet mask_files_;
-  bool mask_warn_{false};
+  bool mask_warn_{};
+  bool dir_relative_to_home_{};
 
   std::string user_;
   path homepath_;
@@ -111,7 +112,12 @@ Config::parse_config_file(path file, Options *opts)
   auto ld = (slash ? cwd() : homepath_ / ".jai") / file;
   if (auto [_it, ok] = config_loop_detect_.insert(ld); !ok)
     err<Options::Error>("configuration loop");
-  Defer _clear{[this, ld = std::move(ld)] { config_loop_detect_.erase(ld); }};
+  Defer _clear{[this, ld = std::move(ld), drh = dir_relative_to_home_] {
+    config_loop_detect_.erase(ld);
+    if (!drh)
+      dir_relative_to_home_ = false;
+  }};
+  dir_relative_to_home_ = true;
 
   auto r = try_read_file(slash ? AT_FDCWD : home_jai(), file);
   if (!r) {
@@ -691,7 +697,10 @@ Config::opt_parser()
                   kUnstrustedUser));
   opts(
       "-d", "--dir",
-      [this](path d) { grant_directories_.emplace(canonical(d)); },
+      [this](path d) {
+        grant_directories_.emplace(
+            canonical(dir_relative_to_home_ ? homepath_ / d : d));
+      },
       "Grant full access to DIR", "DIR");
   opts(
       "-D", "--nocwd", [this] { grant_cwd_ = false; },
