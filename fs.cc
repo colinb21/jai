@@ -206,6 +206,13 @@ ensure_dir(int dfd, const path &p, mode_t perm, FollowLinks follow,
     else if (errno != ENOENT)
       syserr(R"(ensure_dir("{}"): open("{}"))", p.string(),
              component->string());
+    else if (struct stat sb; fstatat(dfd, component->c_str(), &sb, 0))
+      syserr(R"(ensure_dir("{}"): stat("{}"))", p.string(),
+             component->string());
+    else if (!S_ISDIR(sb.st_mode)) {
+      syserr(R"(ensure_dir("{}"): "{}" is not a directory)", p.string(),
+             component->string());
+    }
     else if (mkdirat(dfd, component->c_str(), perm) && errno != EEXIST)
       syserr(R"(ensure_dir("{}"): mkdir("{}"))", p.string(),
              component->string());
