@@ -1,6 +1,8 @@
 
-This software only runs on modern versions of linux.  It makes
-extensive use of non-portable file system namespace facilities.
+This software only runs on modern versions of linux, starting with
+linux 6.13.  It makes extensive use of non-portable
+file-descriptor-based mount calls and file system namespace
+facilities.
 
 To get the software, run:
 

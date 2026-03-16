@@ -335,10 +335,13 @@ Config::make_home_overlay()
   restore.reset();
 
   Fd fsfd = xfsopen("overlay", cat("jai-", sb).c_str());
-  if (fsconfig(*fsfd, FSCONFIG_SET_FD, "lowerdir+", nullptr, home()) ||
-      fsconfig(*fsfd, FSCONFIG_SET_FD, "upperdir", nullptr, *changes) ||
-      fsconfig(*fsfd, FSCONFIG_SET_FD, "workdir", nullptr, *work))
-    syserr("fsconfig(FSCONFIG_SET_FD)");
+  auto xsetfd = [&](const char *param, int fd) {
+    if (fsconfig(*fsfd, FSCONFIG_SET_FD, param, nullptr, fd))
+      syserr("fsconfig(FSCONFIG_SET_FD, \"{}\")", param);
+  };
+  xsetfd("lowerdir+", home());
+  xsetfd("upperdir", *changes);
+  xsetfd("workdir", *work);
   Fd mnt = make_mount(*fsfd);
 
   xmnt_move(*mnt, *sandboxed_home);

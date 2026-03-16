@@ -1,6 +1,6 @@
 ![](./logo.svg "JAI logo")
 
-# JAI - An ultra lightweight jail for AI CLIs on linux
+# JAI - An ultra lightweight jail for AI CLIs on linux 6.13 and later
 
 `jai` strives to be the easiest container in the world to
 configure--so easy that you never again need to run a code assistant
