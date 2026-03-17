@@ -1,6 +1,6 @@
 ![](./logo.svg "JAI logo")
 
-# JAI - An ultra lightweight jail for AI CLIs on linux 6.13 and later
+# JAI - An ultra lightweight jail for AI CLIs on modern linux
 
 `jai` strives to be the easiest container in the world to
 configure--so easy that you never again need to run a code assistant
@@ -38,6 +38,11 @@ following:
   other's changes.
 
 * Per-command configuration files.
+
+jai emphasizes security over portability.  It heavily leverages modern
+linux APIs to isolate processes and avoid time-of-check-to-time-of-use
+race conditions.  It will not work with kernels older than 6.13 or
+operating systems other than linux.
 
 See the [man page](jai.1.md) for more documentation.
 

@@ -17,10 +17,11 @@
 path prog;
 
 constexpr const char *kUnstrustedUser = UNTRUSTED_USER;
+constexpr const char *kUntrustedGecos = "JAI sandbox untrusted user";
 constexpr const char *kRunRoot = "/run/jai";
 
 struct Config {
-  enum Mode { kInvalidMode, kCasual, kStrict };
+  enum Mode { kInvalidMode, kCasual, kBare, kStrict };
 
   Mode mode_{kInvalidMode};
   PathSet grant_directories_;
@@ -179,18 +180,14 @@ Config::init_credentials()
   untrusted_cred_ = user_cred_ = Credentials::get_user(pw);
 
   if (PwEnt u = PwEnt::get_nam(kUnstrustedUser)) {
-    if (u->pw_uid && !strcmp(u->pw_gecos, "JAI sandbox untrusted user") &&
+    if (u->pw_uid && !strcmp(u->pw_gecos, kUntrustedGecos) &&
         !strcmp(u->pw_dir, "/"))
       untrusted_cred_ = Credentials::get_user(u);
     else
-      warn(R"(Ignoring user {} because uid is 0, home dir is not "/" or
-GECOS field is not "JAI sandbox untrusted user")",
-           kUnstrustedUser);
+      warn(R"(Ignoring user {} because uid is 0, home dir is not "/", or
+GECOS field is not "{}")",
+           kUnstrustedUser, kUntrustedGecos);
   }
-  else
-    warn(R"(Could not find credentials for untrusted {} user.
-Try running "sudo systemd-sysusers".)",
-         kUnstrustedUser);
 
   // Paranoia about ptrace, because we will drop privileges to access
   // the file system as the user.
@@ -409,6 +406,9 @@ Config::make_mnt_ns()
   Fd oldns = xopenat(-1, "/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC);
   Defer _restore_ns{[fd = *oldns] { xsetns(fd, CLONE_NEWNS); }};
 
+  if (mode_ == kStrict && untrusted_cred_ == user_cred_)
+    err("Cannot use strict mode: invalid user {}", kUnstrustedUser);
+
   if (mode_ == kInvalidMode)
     mode_ = sandbox_name_.empty() ? kCasual : kStrict;
   if (sandbox_name_.empty())
@@ -426,10 +426,12 @@ Config::make_mnt_ns()
   if (mode_ == kCasual)
     home = clone_tree(*make_home_overlay());
   else {
-    sbcred = &untrusted_cred_;
-    mapns = make_idmap_ns();
-    attr.attr_set |= MOUNT_ATTR_IDMAP;
-    attr.userns_fd = *mapns;
+    if (mode_ == kStrict) {
+      sbcred = &untrusted_cred_;
+      mapns = make_idmap_ns();
+      attr.attr_set |= MOUNT_ATTR_IDMAP;
+      attr.userns_fd = *mapns;
+    }
     home = clone_tree(*ensure_udir(home_jai(), cat(sandbox_name_, ".home")));
   }
   xmnt_setattr(*tmp, attr);
@@ -474,6 +476,7 @@ Config::make_mnt_ns()
     xsetns(*oldns, CLONE_NEWNS);
     auto restore_root = asuser();
     Fd src = xopenat(-1, d, O_DIRECTORY | O_PATH | O_CLOEXEC);
+    check_user(*src, d);
     restore_root.reset();
     src = clone_tree(*src); // Should it be recursive?
     xmnt_setattr(*src, attr);
@@ -661,7 +664,7 @@ Config::exec(int nsfd, char **argv)
     _exit(1);
   }
 
-  if (mode_ == kCasual)
+  if (mode_ == kCasual || mode_ == kBare)
     user_cred_.make_real();
   else
     untrusted_cred_.make_real();
@@ -692,12 +695,24 @@ Config::opt_parser()
   auto ret = std::make_unique<Options>();
   Options &opts = *ret;
   opts(
-      "--casual", [this] { mode_ = kCasual; },
-      "Enable casual mode (copy-on-write overlay home directory)");
-  opts(
-      "--strict", [this] { mode_ = kStrict; },
-      std::format("Enable strict mode (run with uid {} and empty home)",
-                  kUnstrustedUser));
+      "-m", "--mode",
+      [this](std::string_view m) {
+        static const std::map<std::string, Mode, std::less<>> modemap{
+            {"default", kInvalidMode},
+            {"casual", kCasual},
+            {"bare", kBare},
+            {"strict", kStrict}};
+        if (auto it = modemap.find(m); it != modemap.end())
+          mode_ = it->second;
+        else
+          err<Options::Error>(R"(invalid mode {})", m);
+      },
+      std::format(R"(Set execution mode to one of the following:
+    casual - run as invoking UID with overlay home directory
+    bare - run as invoking UID with bare home directory
+    strict - run as UID {} with bare home directory)",
+                  kUnstrustedUser),
+      "casual|bare|strict");
   opts(
       "-d", "--dir",
       [this](path d) {

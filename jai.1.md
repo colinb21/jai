@@ -31,7 +31,7 @@ everything else.  This is known as _casual mode_, because *cmd* can
 read most sensitive files on the system, so jai prevents *cmd* from
 clobbering all your files but doesn't provide any confidentiality.
 
-If you run `jai --strict` *cmd* [*arg*]...", then *cmd* will be run
+If you run `jai -mstrict` *cmd* [*arg*]...", then *cmd* will be run
 with an empty home directory as an unprivileged user id, but with the
 current working directory mapped to its place and fully exposed.
 While the rest of the system outside the user's home directory is
@@ -43,6 +43,8 @@ Before using `jai`, if your home directory is on NFS, make
 `$HOME/.jai` a symbolic link to a directory you own on a local file
 system that supports extended attributes.  Otherwise, overlay mounts
 may not work and you may only be able to use strict mode (see below).
+Note that strict mode will not work with a home directory on NFS, but
+you can use bare mode.
 
 If you want to grant access to directories other than the current
 working directory, you can specify addition directories with the `-d`
@@ -60,7 +62,7 @@ jai allows the use of multiple sandboxed home directories.  To use a
 home directory other than the default, just give it a name with the
 `-n` option and it will be created on demand.  When you specify a home
 directory with `-n`, strict mode becomes the default.  However, you
-can have multiple home overlays by specifying `--casual` with `-n`.
+can have multiple home overlays by specifying `-mcasual` with `-n`.
 
 # CONFIGURATION
 
@@ -120,7 +122,7 @@ virtual environment before running the command.
   is read at the exact point of the `conf` directive, so that it
   overrides previous lines and is overridden by subsequent lines.
 
-`-d` *dir*, `--dir `*dir*
+`-d` *dir*, `--dir` *dir*
 : Grant full access to directory *dir* and everything below in the
   jail.  You must own the directory.  You can supply this option
   multiple times.  Note that on the command line, relative paths are
@@ -134,9 +136,9 @@ virtual environment before running the command.
   home directory will be copy-on-write and nothing will be directly
   exported.
 
-`--casual`
-: Enables casual mode, in which the user's home directory is made
-  available as an overlay mount.  Casual mode protects against
+`-m casual`|`bare`|`strict`, `--mode casual`|`bare`|`strict`
+: Set the execution mode.  In casual mode, the user's home directory
+  is made available as an overlay mount.  Casual mode protects against
   destruction of files outside of granted directories, but does not
   protect confidentiality:  sandboxed code can read most files
   accessible to the user.  You can hide specific files with the
@@ -144,15 +146,19 @@ virtual environment before running the command.
   but because casual mode makes everything readable by default, it
   cannot protect all sensitive files.
 
-`--strict`
-: Enables strict mode.  In strict mode, the user's home directory is
-  replaced by an empty directory, and sandboxed code runs with a
-  different user id, `jai`.  Id-mapped mounts are used to map `jai` to
-  the invoking user in granted directories.  Strict mode is the
+    In strict mode, the user's home directory is replaced by an empty
+  directory (`$HOME/.jai/`*name*`.home`), and sandboxed code runs with
+  a different user id, `jai`.  Id-mapped mounts are used to map `jai`
+  to the invoking user in granted directories.  Strict mode is the
   default when you name a sandbox (see `--name`), but not for the
   default sandbox.
 
-`-n` *name*, `--name `*name*
+    Bare mode uses an empty directory like strict mode, but runs with
+  the invoking user's credentials.  It is inferior to strict mode, but
+  can be used for NFS-mounted home directories, since NFS does not
+  support id-mapped mounts.
+
+`-n` *name*, `--name` *name*
 : jai allows you to have multiple sandboxed home directories, which
   may be useful when sandboxing multiple tools that should not have
   access to each other's API keys.  This option specifies which home

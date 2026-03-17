@@ -13,8 +13,9 @@ const std::string default_conf =
 # overlay mount.  To change the default, you can uncomment one of the
 # following:
 
-# casual
-# strict
+# mode casual
+# mode bare
+# mode strict
 
 # You can use use "name NAME" to specify different sandboxes.  For
 # casual sandboxes, the sandboxed home directory will be in
@@ -38,10 +39,11 @@ const std::string default_conf =
 command "$0" "$@"; exit $?
 
 # Masked files are deleted when an overlayfs is first created, but
-# have no effect on existing overlays.  To delete files from an
-# existing overlay, delete them under /run/jai/$USER/default.home.
-# Otherwise, to apply new mask directives you can run "jai -u" to
-# unmount any existing overlays.
+# have no effect on existing overlays or on strict/bare jails.  To
+# delete files from an existing overlay, delete them under
+# /run/jai/$USER/default.home.  Otherwise, to apply new mask
+# directives after editing this file, you can run "jai -u" to unmount
+# any existing overlays.
 
 mask .jai
 mask .ssh
