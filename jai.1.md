@@ -61,8 +61,10 @@ tool to update, you will find changed files in
 jai allows the use of multiple sandboxed home directories.  To use a
 home directory other than the default, just give it a name with the
 `-n` option and it will be created on demand.  When you specify a home
-directory with `-n`, strict mode becomes the default.  However, you
-can have multiple home overlays by specifying `-mcasual` with `-n`.
+directory with `-n`, strict mode becomes the default (unless there is
+no unprivileged `jai` user on your system, in which case it falls back
+to bare mode).  However, you can have multiple home overlays by
+specifying `-mcasual` with `-n`.
 
 # CONFIGURATION
 
