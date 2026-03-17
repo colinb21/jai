@@ -390,14 +390,14 @@ Config::make_idmap_ns()
 
   path child = std::format("/proc/{}", pid);
 
-  Fd newns = xopenat(-1, child / "ns/user", O_RDONLY);
+  Fd newns = xopenat(-1, child / "ns/user", O_RDONLY | O_CLOEXEC);
 
-  Fd mapctl = xopenat(-1, child / "gid_map", O_WRONLY);
+  Fd mapctl = xopenat(-1, child / "gid_map", O_WRONLY | O_CLOEXEC);
   auto map = make_id_map(user_cred_.gid_, untrusted_cred_.gid_);
   if (write(*mapctl, map.data(), map.size()) == -1)
     syserr("write(gid_map)");
 
-  mapctl = xopenat(-1, child / "uid_map", O_WRONLY);
+  mapctl = xopenat(-1, child / "uid_map", O_WRONLY | O_CLOEXEC);
   map = make_id_map(user_cred_.uid_, untrusted_cred_.uid_);
   if (write(*mapctl, map.data(), map.size()) == -1)
     syserr("write(uid_map)");
@@ -525,9 +525,11 @@ Config::unmount()
 static void
 clean_root_owned_dir(int dfd, path file)
 {
-  Fd target = openat(dfd, file.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  Fd target = openat(dfd, file.c_str(),
+                     O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (!target) {
-    warn("{}: {}", fdpath(dfd, file), strerror(errno));
+    if (errno != ENOENT)
+      warn("{}: {}", fdpath(dfd, file), strerror(errno));
     return;
   }
   if (!is_fd_at_path(dfd, *target, "..", kNoFollow)) {
@@ -557,7 +559,7 @@ Config::unmountall()
   Fd lock;
   while (!(lock = open_lockfile(run_jai_user(), ".lock")))
     ;
-  recursive_umount(path(kRunRoot) / user_, false);
+  bool unmount_ok = recursive_umount(path(kRunRoot) / user_, false);
 
   auto dir = xopendir(run_jai_user());
   while (auto de = readdir(dir))
@@ -565,26 +567,28 @@ Config::unmountall()
       unlinkat(run_jai_user(), de->d_name, 0);
 
   // Get rid of any stale files the user can't delete
-  try {
-    auto restore = asuser();
-    auto jd = xopendir(home_jai());
-    while (auto de = readdir(jd)) {
-      path name = d_name(de);
-      if (name.extension() == ".work")
-        try {
-          Fd work = xopenat(home_jai(), name.c_str(), O_RDONLY | O_DIRECTORY);
-          check_user(*work);
-          restore.reset();
-          Defer _unrestore([&restore, this] { restore = asuser(); });
-          clean_root_owned_dir(*work, "work");
-          clean_root_owned_dir(*work, "index");
-        } catch (const std::exception &e) {
-          warn("{}", e.what());
-        }
+  if (unmount_ok)
+    try {
+      auto restore = asuser();
+      auto jd = xopendir(home_jai());
+      while (auto de = readdir(jd)) {
+        path name = d_name(de);
+        if (name.extension() == ".work")
+          try {
+            Fd work = xopenat(home_jai(), name.c_str(),
+                              O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+            check_user(*work);
+            restore.reset();
+            Defer _unrestore([&restore, this] { restore = asuser(); });
+            clean_root_owned_dir(*work, "work");
+            clean_root_owned_dir(*work, "index");
+          } catch (const std::exception &e) {
+            warn("{}", e.what());
+          }
+      }
+    } catch (const std::exception &e) {
+      warn("{}", e.what());
     }
-  } catch (const std::exception &e) {
-    warn("{}", e.what());
-  }
 
   unlinkat(run_jai_user(), ".lock", 0);
   lock.reset();
@@ -647,7 +651,7 @@ Config::exec(int nsfd, char **argv)
     int status = -1;
     for (;;) {
       int r = waitpid(pid, &status, WUNTRACED);
-      std::println(stderr, "waitpid -> pid = {}, status = 0x{:x}", r, status);
+      // std::println(stderr, "waitpid: pid = {}, status = 0x{:x}", r, status);
       if (r != pid) {
         if (r == -1 && errno != EINTR)
           syserr("waitpid");
