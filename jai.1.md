@@ -176,12 +176,23 @@ environment before running the command.
 
 `--mask` *file*
 : When creating an overlay home directory, create a "whiteout" file to
-  hide *file* in the sandbox.  You can specify this option multiple
-  times.  An easier way to hide files is just to delete them from
-  `/run/jai/$USER/*.home`; hence, this option is mostly useful in
+  hide *file* in the jail.  *file* must be a relative path and is
+  relative to your home directory.  You can specify this option
+  multiple times.  An easier way to hide files is just to delete them
+  from `/run/jai/$USER/*.home`; hence, this option is mostly useful in
   configuration files to specify a set of files to delete by default.
   If you add `mask` directives to your configuration file, you will
   need to clear mounts with `jai -u` before the changes take effect.
+
+`--unmask` *file*
+: Reverse the effects of a previous `--mask` option.  This does not
+  unmask files that have already been masked in an existing jail.  For
+  that, you need to go into `$HOME/.jai/`*name*`.changes` and manually
+  remove the whiteout files.  It also does nothing if you have masked
+  a parent directory of *file*.  The main utility of this option is to
+  reverse `mask` lines in a configuration file.  For instance, you can
+  include a default set of masked files with a `conf` option and then
+  surgically remove individual masked files that you want to expose.
 
 `--unsetenv` *var*
 : Filters *var* from the environment of the sandboxed program.  Can be
@@ -274,5 +285,4 @@ In general overlayfs can be flaky.  If the attributes on the
 `default.changes` directory get out of sync, it may require making a
 new `default.changes` directory to get around mounting errors.
 
-There is no way to reverse an `unsetenv` or `mask` configuration
-option.
+There is no way to reverse an `unsetenv` configuration option.

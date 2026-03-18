@@ -878,6 +878,9 @@ Config::opt_parser()
       },
       "Erase $HOME/FILE when first creating overlay home", "FILE");
   opts(
+      "--unmask", [this](path p) { mask_files_.erase(p); },
+      "erase the effects of a previous --mask option", "FILE");
+  opts(
       "--unsetenv",
       [this](std::string var) { env_filter_.emplace(std::move(var)); },
       "Remove VAR from environment (VAR can contain wildcard '*')", "VAR");
