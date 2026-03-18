@@ -45,10 +45,10 @@ template<typename Ent, auto IdFn, auto NamFn> struct DbEnt {
   const Ent *operator->() const { return p_; }
   Ent *get() const { return p_; }
 
-  static DbEnt get_id(ugid_t n) { return get(IdFn, n); }
-  static DbEnt get_nam(const char *n) { return get(NamFn, n); }
+  static DbEnt get_id(ugid_t n) { return find(IdFn, n); }
+  static DbEnt get_nam(const char *n) { return find(NamFn, n); }
 
-  static DbEnt get(auto fn, auto key)
+  static DbEnt find(auto fn, auto key)
   {
     DbEnt ret;
     ret.buf_.resize(std::max(128uz, ret.buf_.capacity()));
@@ -58,8 +58,10 @@ template<typename Ent, auto IdFn, auto NamFn> struct DbEnt {
         return ret ? std::move(ret) : DbEnt{};
       else if (r == ERANGE)
         ret.buf_.resize(2 * ret.buf_.size());
+      else if (r == ENOENT)
+        return DbEnt{};
       else
-        errno = r, syserr("DbEnt<{}>::get", typeid(Ent).name());
+        errno = r, syserr("DbEnt<{}>::find", typeid(Ent).name());
     }
   }
 };

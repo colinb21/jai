@@ -12,13 +12,14 @@
 #include <print>
 
 #include <acl/libacl.h>
+#include <pwd.h>
 #include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
 path prog;
 
-constexpr const char *kUnstrustedUser = UNTRUSTED_USER;
+constexpr const char *kUntrustedUser = UNTRUSTED_USER;
 constexpr const char *kUntrustedGecos = "JAI sandbox untrusted user";
 constexpr const char *kRunRoot = "/run/jai";
 
@@ -40,6 +41,7 @@ struct Config {
   path sandbox_name_;
   Credentials user_cred_;
   Credentials untrusted_cred_;
+  path shell_;
   mode_t old_umask_ = 0755;
 
   Fd home_fd_;
@@ -93,6 +95,7 @@ struct Config {
   Fd make_blacklist(int dfd, path name);
   Fd make_home_overlay();
   Fd make_private_tmp();
+  Fd make_private_passwd();
 
   static bool name_ok(path p)
   {
@@ -182,16 +185,17 @@ Config::init_credentials()
 
   user_ = pw->pw_name;
   homepath_ = pw->pw_dir;
+  shell_ = pw->pw_shell;
   untrusted_cred_ = user_cred_ = Credentials::get_user(pw);
 
-  if (PwEnt u = PwEnt::get_nam(kUnstrustedUser)) {
+  if (PwEnt u = PwEnt::get_nam(kUntrustedUser)) {
     if (u->pw_uid && !strcmp(u->pw_gecos, kUntrustedGecos) &&
         !strcmp(u->pw_dir, "/"))
       untrusted_cred_ = Credentials::get_user(u);
     else
       warn(R"(Ignoring user {} because uid is 0, home dir is not "/", or
 GECOS field is not "{}")",
-           kUnstrustedUser, kUntrustedGecos);
+           kUntrustedUser, kUntrustedGecos);
   }
 
   // Paranoia about ptrace, because we will drop privileges to access
@@ -369,6 +373,47 @@ Config::make_private_tmp()
 }
 
 Fd
+Config::make_private_passwd()
+{
+  if (Fd fd = openat(run_jai_user(), "passwd", O_RDONLY | O_CLOEXEC))
+    return fd;
+  if (errno != ENOENT)
+    syserr("{}", fdpath(run_jai_user(), "passwd"));
+
+  RaiiHelper<fclose> r, w;
+
+  Fd wfd = xopenat(run_jai_user(), ".", O_RDWR | O_TMPFILE | O_CLOEXEC, 0444);
+  if (!(w = fdopen(*wfd, "w")))
+    syserr("fdopen({})", fdpath(*wfd));
+  wfd.release();
+
+  auto restore = asuser();
+  r = fopen("/etc/passwd", "r");
+  if (!r)
+    syserr("/etc/passwd");
+  fcntl(fileno(r), F_SETFD, 1);
+  restore.reset();
+
+  while (auto pw = PwEnt::find(fgetpwent_r, *r)) {
+    if (!strcmp(pw->pw_name, kUntrustedUser)) {
+      pw.get()->pw_dir = const_cast<char *>(homepath_.c_str());
+      pw.get()->pw_shell = const_cast<char *>(shell_.c_str());
+    }
+    if (putpwent(pw.get(), *w))
+      syserr("putpwent");
+  }
+  if (fflush(*w))
+    syserr("fflush");
+  if (linkat(fileno(*w), "", run_jai_user(), "passwd", AT_EMPTY_PATH) &&
+      errno != EEXIST)
+    syserr("linkat({})", fdpath(run_jai_user(), "passwd"));
+  r.reset();
+  w.reset();
+
+  return xopenat(run_jai_user(), "passwd", O_RDONLY);
+}
+
+Fd
 Config::make_idmap_ns()
 {
   pid_t pid{-1};
@@ -411,11 +456,12 @@ Config::make_mnt_ns()
   Fd oldns = xopenat(-1, "/proc/self/ns/mnt", O_RDONLY | O_CLOEXEC);
   Defer _restore_ns{[fd = *oldns] { xsetns(fd, CLONE_NEWNS); }};
 
-  if (mode_ == kStrict && untrusted_cred_ == user_cred_)
-    err("Cannot use strict mode: invalid user {}", kUnstrustedUser);
+  bool strict_ok = untrusted_cred_ != user_cred_;
+  if (mode_ == kStrict && !strict_ok)
+    err("Cannot use strict mode: invalid user {}", kUntrustedUser);
 
   if (mode_ == kInvalidMode)
-    mode_ = sandbox_name_.empty() ? kCasual : kStrict;
+    mode_ = sandbox_name_.empty() ? kCasual : strict_ok ? kStrict : kBare;
   if (sandbox_name_.empty())
     sandbox_name_ = "default";
 
@@ -424,6 +470,10 @@ Config::make_mnt_ns()
       .propagation = MS_PRIVATE,
   };
   Fd tmp = clone_tree(*mp_holder_.emplace_back(make_private_tmp()));
+
+  Fd passwd;
+  if (mode_ == kStrict)
+    passwd = clone_tree(*make_private_passwd());
 
   Fd home;
   Fd mapns;
@@ -441,6 +491,8 @@ Config::make_mnt_ns()
   }
   xmnt_setattr(*tmp, attr);
   xmnt_setattr(*home, attr);
+  if (passwd)
+    xmnt_setattr(*passwd, attr);
 
   if (unshare(CLONE_NEWNS))
     syserr("unshare(CLONE_NEWNS)");
@@ -458,6 +510,8 @@ Config::make_mnt_ns()
   xmnt_move(*tmp, -1, "/tmp");
   xmnt_move(*clone_tree(-1, "/tmp"), -1, "/var/tmp", 0);
   xmnt_move(*home, -1, homepath_);
+  if (passwd)
+    xmnt_move(*passwd, -1, "/etc/passwd");
 
   if (grant_cwd_) {
     if (!grant_directories_.contains(cwd())) {
@@ -787,7 +841,7 @@ Config::opt_parser()
     casual - run as invoking UID with overlay home directory
     bare - run as invoking UID with bare home directory
     strict - run as UID {} with bare home directory)",
-                  kUnstrustedUser),
+                  kUntrustedUser),
       "casual|bare|strict");
   opts(
       "-d", "--dir",
