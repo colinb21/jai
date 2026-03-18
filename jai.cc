@@ -380,7 +380,6 @@ Config::make_idmap_ns()
   });
   auto pfds = xpipe();
   if (!(pid = xfork(CLONE_NEWUSER))) {
-    prctl(PR_SET_PDEATHSIG, SIGKILL);
     pfds[1].reset();
     char c;
     read(*pfds[0], &c, 1);
@@ -640,6 +639,42 @@ Config::sanitize_env()
     unsetenv(v.c_str());
 }
 
+[[noreturn]] static void
+emulate_child(int pid, bool immediate)
+try {
+  for (;;) {
+    int status;
+    int r = waitpid(pid, &status, WUNTRACED);
+    std::println(stderr, "waitpid: pid {}, status 0x{:x}", pid, status);
+    fflush(stderr);
+    if (r != pid) {
+      if (r == -1 && errno != EINTR)
+        syserr("waitpid");
+      continue;
+    }
+    if (WIFSTOPPED(status)) {
+      if (int sig = WSTOPSIG(status); sig == SIGSTOP || sig == SIGTSTP ||
+                                      sig == SIGTTIN || sig == SIGTTOU) {
+        std::println(stderr, "attempting to stop myself with signal {}", sig);
+        raise(SIGSTOP);
+      }
+      continue;
+    }
+    // unmount();
+    if (WIFEXITED(status))
+      (immediate ? _exit : exit)(WEXITSTATUS(status));
+    if (WIFSIGNALED(status)) {
+      signal(WTERMSIG(status), SIG_DFL);
+      raise(WTERMSIG(status));
+      _exit(-1);
+    }
+    err("unknown child wait status 0x{:x}", status);
+  }
+} catch (const std::exception &e) {
+  warn("{}", e.what());
+  immediate ? _exit(1) : exit(1);
+}
+
 void
 Config::exec(int nsfd, char **argv)
 {
@@ -647,34 +682,20 @@ Config::exec(int nsfd, char **argv)
     syserr("unshare(CLONE_NEWPID)");
 
   if (auto pid = xfork()) {
+    // This is the last process in the old PID namespace
     close(nsfd);
-    int status = -1;
-    for (;;) {
-      int r = waitpid(pid, &status, WUNTRACED);
-      // std::println(stderr, "waitpid: pid = {}, status = 0x{:x}", r, status);
-      if (r != pid) {
-        if (r == -1 && errno != EINTR)
-          syserr("waitpid");
-      }
-      else if (WIFSTOPPED(status)) {
-        // Because the child is in its own PID namespace, it cannot
-        // stop us if it tries to suspend the process group.  Hence,
-        // detect if the child stopped and stop ourselves.
-        if (int sig = WSTOPSIG(status); sig == SIGSTOP || sig == SIGTSTP ||
-                                        sig == SIGTTIN || sig == SIGTTOU)
-          raise(sig);
-      }
-      else {
-        // unmount();
-        if (WIFEXITED(status))
-          exit(WEXITSTATUS(status));
-        if (WIFSIGNALED(status)) {
-          signal(WTERMSIG(status), SIG_DFL);
-          raise(WTERMSIG(status));
-        }
-        err("unknown child wait status 0x{:x}", status);
-      }
+    emulate_child(pid, false);
+  }
+
+  if (auto pid = xfork()) {
+    // This is the "init" process in the new PID namespace
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+    if (getppid() == 1) {
+      warn("parent killed before PR_SET_PDEATHSIG");
+      _exit(1);
     }
+    prctl(PR_SET_NAME, "jai-init");
+    emulate_child(pid, true);
   }
 
   try {
@@ -824,6 +845,10 @@ default: CMD.conf or default.conf if CMD.conf does not exist)",
       "FILE");
   (*opts)("--help", [] { usage(0); });
   (*opts)("--version", version, "Print copyright and version then exit");
+  (*opts)(
+      "--print-default-conf",
+      [] { write(1, default_conf.data(), default_conf.size()); },
+      "Show contents of the default configuration file");
   option_help = opts->help();
 
   std::vector<char *> cmd;

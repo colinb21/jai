@@ -29,14 +29,10 @@ const std::string default_conf =
 # name default
 
 # jai launches programs in a sandbox by running bash with the command
-# name in "$0" and the arguments in "@".  bash will have a PID 1,
-# which can confuse some programs.  Adding "; exit $?" after the
-# command and arguments will cause bash to fork and stay around,
-# giving "$0" PID 2.  For non-default configurations, you can also use
-# a command directive to insert extra arguments or set environment
-# variables.
+# name in "$0" and the arguments in "@".  Altering command allow you
+# to set enfironment variables or add command-line arguments.
 
-command "$0" "$@"; exit $?
+command "$0" "$@"
 
 # Masked files are deleted when an overlayfs is first created, but
 # have no effect on existing overlays or on strict/bare jails.  To
