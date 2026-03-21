@@ -125,7 +125,8 @@ Config::parse_config_file(path file, Options *opts)
 {
   bool slash = std::ranges::distance(file.begin(), file.end()) > 1;
 
-  if (struct stat sb; !slash && file.extension() != ".conf" &&
+  if (struct stat sb;
+      !slash && file.extension() != ".conf" &&
       fstatat(home_jai(), file.c_str(), &sb, 0) && errno == ENOENT &&
       ~fstatat(home_jai(), cat(file, ".conf").c_str(), &sb, 0) &&
       S_ISREG(sb.st_mode))
@@ -971,8 +972,11 @@ Config::opt_parser()
   opts(
       "--setenv",
       [this](std::string var) {
-        if (auto pos = var.find('='); pos != var.npos)
-          setenv_.insert_or_assign(var.substr(0, pos), var);
+        if (auto pos = var.find('='); pos != var.npos) {
+          auto var_eq_val = std::format("{}{}", var.substr(0, pos + 1),
+                                        var_expand(var.substr(pos + 1)));
+          setenv_.insert_or_assign(var.substr(0, pos), var_eq_val);
+        }
         else if (auto it = env_filter_.find(var); it != env_filter_.end())
           env_filter_.erase(it);
         else if (var.contains(' '))
@@ -993,10 +997,11 @@ Config::opt_parser()
   opts(
       "--storage",
       [this](std::string_view s) {
+        auto sd = var_expand(s);
         if (dir_relative_to_home_)
-          storagedir_ = homepath_ / s;
+          storagedir_ = homepath_ / sd;
         else
-          storagedir_ = s;
+          storagedir_ = sd;
       },
       R"(Store overlay and private home directories in DIR
 (default: $JAI_CONFIG_DIR or $HOME/.jai))",
