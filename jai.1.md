@@ -178,7 +178,11 @@ opencode`):
 
 `-C` *file*, `--conf `*file*
 : Specifies the configuration file to read.  If *file* does not
-  contain a `/`, the file is relative to `$HOME/.jai`.
+  contain a `/`, the file is relative to `$HOME/.jai`.  Also, if
+  *file* resides in `$HOME/.jai` and does not contain a `/`, you can
+  omit any `.conf` extension.  So `-C default` is equivalent to `-C
+  default.conf` (assuming you don't have a file `default` in addition
+  to `default.conf`).
 
   If no configuration file is specified, the default is based on the
   *cmd* argument.  If *cmd* contains no slashes and does not start

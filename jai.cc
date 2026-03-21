@@ -124,6 +124,13 @@ bool
 Config::parse_config_file(path file, Options *opts)
 {
   bool slash = std::ranges::distance(file.begin(), file.end()) > 1;
+
+  if (struct stat sb; !slash && file.extension() != ".conf" &&
+      fstatat(home_jai(), file.c_str(), &sb, 0) && errno == ENOENT &&
+      ~fstatat(home_jai(), cat(file, ".conf").c_str(), &sb, 0) &&
+      S_ISREG(sb.st_mode))
+    file += ".conf";
+
   auto ld = (slash ? cwd() : homejaipath_) / file;
   if (auto [_it, ok] = config_loop_detect_.insert(ld); !ok)
     err<Options::Error>("configuration loop");
