@@ -68,7 +68,15 @@ If you want to grant access to directories other than the current
 working directory, you can specify addition directories with the `-d`
 option, as in `jai -d /local/build untrusted_program`.  If you don't
 want to grant access to the current working directory, use the `-D`
-option.
+option.  Note that by default, jai will refuse to run in your home
+directory, on the assumption that this is probably a mistake and that
+you don't want to grant your entire home directory to jailed
+processes.  If you are in your home directory, you can launch jai with
+`-D` to start in the sandboxed version of your home directory without
+granting anything.  If you really want to grant your entire home
+directory to the jail, you can do still do so by running `jai -Dd
+$HOME`, but since that negates most of jai's protections, it would
+only make sense in unusual corner cases.
 
 If you use casual mode and jailed software stores configuration files
 in your home directory, you will find any such changes in
