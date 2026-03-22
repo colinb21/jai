@@ -27,13 +27,16 @@ By default, if you run "`jai` *cmd* [*arg*]...", it will execute *cmd*
 with the specified arguments in a lightweight jail that has full
 access to the current working directory and everything below,
 copy-on-write access to an overlay mount of your home directory,
-private `/tmp` and `/var/tmp` directories, and read-only access to
-everything else.  This is known as _casual mode_, because *cmd* can
-read most sensitive files on the system.  In other words, jai prevents
-*cmd* from clobbering all your files, but doesn't provide much
-confidentiality.
+private `/tmp` and `/var/tmp` directories, and the rest of the file
+system read-only.  Note, however, that device nodes remain usable
+subject to normal permission checks; a read-only `/dev` mount does not
+prevent opening devices read-write.  If you don't specify *cmd*, jai
+will launch a jailed shell by default.
 
-If you don't specify *cmd*, jai will launch a jailed shell by default.
+Executing a command in this way is known as _casual mode_, because
+*cmd* can read most sensitive files on the system.  In other words,
+jai prevents *cmd* from clobbering all your files, but doesn't provide
+much confidentiality.
 
 If you run `jai -mstrict` *cmd* [*arg*]...", then *cmd* will be run
 with an empty home directory as an unprivileged user id, but with the

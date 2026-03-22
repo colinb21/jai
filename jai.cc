@@ -48,9 +48,9 @@ Config::parse_config_file(path file, Options *opts)
     throw r.error();
   }
   if (opts)
-    opts->parse_file(*r, fdpath(home_jai(), file));
+    opts->parse_file(*r, ld.string());
   else
-    opt_parser()->parse_file(*r, fdpath(home_jai(), file));
+    opt_parser()->parse_file(*r, ld.string());
   return true;
 }
 
