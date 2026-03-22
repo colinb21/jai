@@ -131,14 +131,9 @@ unsetenv SLACK_WEBHOOK_URL
 
 # The following environment variables get set in sandboxes.  You can
 # substitute existing environment variables (before any
-# unsetenv/setenv have been applied) by including them in ${...}.  Two
-# additional environment variables will be set that you can reference:
-#
-#  ${JAI_NAME} - the name of the sandbox
-#  ${JAI_USER} - the outside user invoking the sandbox
-#
-# (Note JAI_MODE is set in the sandbox's enfironment but not available
-# during configuration, since it can change during configuration.)
+# unsetenv/setenv have been applied) by including them in ${...}.  You
+# can reference ${JAI_USER} here, which gets set before configuration,
+# but not ${JAI_NAME} or ${JAI_MODE}, which are set after.
 
 setenv USER=${JAI_USER}
 setenv LOGNAME=${JAI_USER}

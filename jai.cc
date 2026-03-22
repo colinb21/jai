@@ -101,12 +101,11 @@ Config::init_credentials()
   shell_ = pw->pw_shell;
   untrusted_cred_ = user_cred_ = Credentials::get_user(pw);
 
-  setenv("JAI_NAME", sandbox_name_.c_str(), 1);
   setenv("JAI_USER", user_.c_str(), 1);
-
   // HOME may incorrectly be root's when using su/sudo
   if (realuid == 0 && pw->pw_uid != 0)
-    setenv_.emplace("HOME", std::format("HOME={}", pw->pw_dir));
+    setenv("HOME", pw->pw_dir, 1);
+  ;
 
   if (PwEnt u = PwEnt::get_nam(kUntrustedUser)) {
     if (u->pw_uid && !strcmp(u->pw_gecos, kUntrustedGecos) &&
@@ -812,6 +811,7 @@ try {
     argv = const_cast<char **>(bashcmd.data());
   }
 
+  setenv("JAI_NAME", sandbox_name_.c_str(), 1);
   setenv("JAI_MODE",
          mode_ == kStrict ? "strict"
          : mode_ == kBare ? "bare"
