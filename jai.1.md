@@ -247,7 +247,7 @@ opencode`):
   home directory will be copy-on-write (in casual mode) or empty (in
   bare or strict mode) and nothing will be directly exported.
 
-`-m casual`|`bare`|`strict`, `--mode casual`|`bare`|`strict`
+`-m` {`casual`|`bare`|`strict`}, `--mode` {`casual`|`bare`|`strict`}
 : Set jai's execution mode.  In casual mode, the user's home directory
   is made available as an overlay mount.  Casual mode protects against
   destruction of files outside of granted directories, but does not
