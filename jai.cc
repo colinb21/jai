@@ -1036,7 +1036,7 @@ Config::opt_parser(bool dotjail)
       [this](std::string var) {
         if (auto pos = var.find('='); pos != var.npos) {
           auto var_eq_val = std::format("{}{}", var.substr(0, pos + 1),
-                                        var_expand(var.substr(pos + 1)));
+                                        expand(var.substr(pos + 1)));
           setenv_.insert_or_assign(var.substr(0, pos), var_eq_val);
         }
         else if (auto it = env_filter_.find(var); it != env_filter_.end())
@@ -1059,7 +1059,7 @@ Config::opt_parser(bool dotjail)
   opts(
       "--storage",
       [this](std::string_view s) {
-        auto sd = var_expand(s);
+        auto sd = expand(s);
         if (parsing_config_file_)
           storagedir_ = homepath_ / sd;
         else

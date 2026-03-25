@@ -50,18 +50,6 @@ xfork(std::uint64_t flags = 0)
   syserr("clone3");
 }
 
-/*
-inline bool
-is_pid_stopped(pid_t pid)
-{
-  auto fullstat = read_file(-1, std::format("/proc/{}/stat", pid));
-  auto pos = fullstat.rfind(')');
-  if (pos == fullstat.npos)
-    err("/proc/PID/stat: wrong format");
-  return (std::string_view(fullstat).substr(pos, 3) == ") T");
-}
-*/
-
 inline sigset_t
 sigsingleton(int sig)
 {
@@ -176,6 +164,18 @@ struct Config {
   Fd make_home_overlay();
   Fd make_private_tmp();
   Fd make_private_passwd();
+
+  const char *env_lookup(std::string_view var)
+  {
+    if (auto it = setenv_.find(var); it != setenv_.end())
+      if (auto pos = it->second.find('='); pos != it->second.npos)
+        return it->second.c_str() + pos + 1;
+    return env_or_empty(var);
+  }
+  std::string expand(std::string_view in)
+  {
+    return var_expand(in, [this](std::string_view v) { return env_lookup(v); });
+  }
 
   static bool name_ok(path p)
   {

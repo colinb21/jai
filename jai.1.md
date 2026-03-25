@@ -101,13 +101,14 @@ Configuration comes from three sources: the command line, a `.conf`
 configuration file (which may include other files via `conf` options),
 and a `.jail` file specific to the named jail you are choosing.
 Command-line options override everything, and `.jail` files override
-`.conf` files.
+`.conf` files (except that `.jail` files cannot select a different
+jail).
 
 If you don't specify a `.conf` file on the command line with the `-C`
 option, and if *cmd* does not contain any slashes, jai will first try
 to use `$HOME/.jai/`*cmd*`.conf` if that file exists, and otherwise
-will use `$HOME/.jai/default.conf` (which it will create if needed).
-That way the `.conf` file can specify a jail name, and the
+will use `$HOME/.jai/default.conf` (which it will create if
+necessary).  That way the `.conf` file can specify a jail name and the
 `.jail` file can set the mode of the jail.
 
 The format of `.conf` and `.jail` configuration files is a series of
@@ -126,10 +127,12 @@ location.
 
 Within a configuration file, `conf` acts like an include directive,
 logically replacing the `conf` line with the contents of another
-configuration file.  Relative paths are relative to `$HOME/.jai/` (or
-`$JAI_CONFIG_DIR` if set).  jai creates a file `.defaults` with a
-sensible set of defaults you should probably include directly or
-indirectly in any `.conf` configuration file you write.
+configuration file.  Relative paths in `conf` include directives are
+relative to `$HOME/.jai/` (or `$JAI_CONFIG_DIR` if set).  jai creates
+a file `.defaults` with a sensible set of defaults you should probably
+include directly or indirectly as the first thing in any `.conf`
+configuration file you write.  (By including it first, anything else
+in your `.conf` file will override the defaults.)
 
 jai executes jailed programs with bash.  The `command` directive
 allows you to reconfigure the environment or add command-line options
@@ -137,14 +140,16 @@ to certain commands.  For instance, to use a python virtual
 environment in a jail, you might create a file `python.conf` with the
 following:
 
-    conf default.conf
+    conf .defaults
     mode strict
     dir venv
     jail python
     command source $HOME/venv/bin/activate; "$0" "$@"
 
 If you run `jai python`, this configuration file will load a virtual
-environment before running the command.
+environment before running the command.  For more complicated setup
+logic, you can use `setenv` to set the `BASH_ENV` environment variable
+to an initialization script to be sourced in non-interactive session.
 
 # EXAMPLES
 
@@ -153,18 +158,43 @@ To install claude code in a jail called `claude`:
     curl -fsSL https://claude.ai/install.sh | \
         jai -D -mstrict -j claude bash
 
-To invoke claude code in that same jail, if `$HOME/.local/bin` is not
-already on your path:
+(Note the `bash` argument is optional, because jai runs `bash` by
+default.)  To invoke claude code in that same jail, if
+`$HOME/.local/bin` is not already on your path:
 
     PATH=$HOME/.local/bin:$PATH jai -j claude claude
 
 To make `jai claude` use the claude jail by default:
 
-    cat <<<EOF >$HOME/.jai/claude.conf
+    cat <<'EOF' >$HOME/.jai/claude.conf
     conf .defaults
     jail claude
-    command PATH=$HOME/.local/bin:$PATH "$0" "$@"
+    setenv PATH=${HOME}/.local/bin:${PATH}
     EOF
+
+Now you can run `jai claude` to invoke claude code with access to the
+current working directory, and `jail -C claude` to get a shell with
+the same permissions as claude, so as to understand what claude is
+seeing.  To make `jai claudeyolo` run claude in dangerous mode, you
+could create another configuration file like this:
+
+    cat <<'EOF' > $HOME/.jai/claudeyolo.conf
+    # Start with claude's defaults
+    conf claude
+
+    # Add a shell function that will expand "claudeyolo" to the
+    # appropriate claude command for destroying your file system.
+    # (Note semicolon before the right brace and after, and backslash
+    # for continuation lines in the configuration file.)
+    command claudeyolo(){ \
+        claude --permission-mode bypassPermissions "$@"; \
+      }; "$0" "$@"
+    EOF
+
+The author is not advocating doing the above!  But if you are going to
+use claude in dangerous mode, better to make the alias available only
+in jai, not in your outside shells, so you don't accidentally do it
+without jai.
 
 Suppose you want to make your X11 session available in the claude jail
 to facilitate pasting images into claude.  This significantly reduces
@@ -175,7 +205,7 @@ directory and merging them into your claude jail.
     # Extract cookies outside jail, merge them inside jail
     xauth extract - $DISPLAY | jai -C claude xauth merge -
 
-    # Now copy a screen region to paste in claude
+    # Now copy a screen region to paste into claude...
     import png:- | xclip -selection clipboard -t image/png
 
 A safer way to do this is to write your screengrabs directly into the
@@ -330,8 +360,10 @@ opencode`):
 
     If *value* contains the pattern `${`*envvar*`}`, it will be
   replaced by the value of the environment variable *envvar* at the
-  time jai was invoked.  If value contains `\`, it escapes the next
-  character.
+  time jai was invoked, or to *envval* of the previous `--setenv`
+  *envvar*`=`*envval* command if that `--setenv` has not been undone
+  by a subsequent `--unsetenv`.  If *value* contains `\`, it escapes
+  the next character.
 
 `--storage` *dir*
 : Specify an alternate location in which to store private home
