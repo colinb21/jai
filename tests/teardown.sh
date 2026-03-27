@@ -10,7 +10,7 @@ UPPER_FILE=$CONFIG_DIR/default.changes/$(basename "$HOST_HOME_FILE")
 
 register_cleanup_path "$HOST_HOME_FILE"
 
-printf 'host' >"$HOST_HOME_FILE"
+real_user_write_file "$HOST_HOME_FILE" "host"
 
 capture_in_dir "$WORKDIR" run_jai /bin/sh -c '
   printf overlay > "$1"

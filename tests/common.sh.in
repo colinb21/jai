@@ -200,6 +200,40 @@ run_root() {
   esac
 }
 
+run_real_user() {
+  case $TEST_PRIVILEGE_MODE in
+    root)
+      if command -v runuser >/dev/null 2>&1; then
+        env HOME="$REAL_HOME" USER="$REAL_USER" LOGNAME="$REAL_USER" \
+          runuser -m -u "$REAL_USER" -- "$@"
+      elif command -v su >/dev/null 2>&1; then
+        env HOME="$REAL_HOME" USER="$REAL_USER" LOGNAME="$REAL_USER" \
+          su -m -s /bin/sh "$REAL_USER" -c 'cd "$1" && shift && exec "$@"' sh \
+          "$PWD" "$@"
+      else
+        fail "need runuser or su to run setup as $REAL_USER"
+      fi
+      ;;
+    setuid)
+      "$@"
+      ;;
+  esac
+}
+
+real_user_mkdir_p() {
+  run_real_user mkdir -p "$@"
+}
+
+real_user_rm_f() {
+  run_real_user rm -f -- "$@"
+}
+
+real_user_write_file() {
+  path=$1
+  contents=$2
+  run_real_user sh -c 'printf %s "$1" >"$2"' sh "$contents" "$path"
+}
+
 run_jai_launcher() {
   case $TEST_PRIVILEGE_MODE in
     setuid)

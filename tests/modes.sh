@@ -11,7 +11,7 @@ STRICT_GRANTED=$WORKDIR/strict-granted.txt
 
 register_cleanup_path "$HOST_HOME_FILE"
 
-printf 'secret' >"$HOST_HOME_FILE"
+real_user_write_file "$HOST_HOME_FILE" "secret"
 
 capture_in_dir "$WORKDIR" run_jai -j named /usr/bin/env
 assert_status 0

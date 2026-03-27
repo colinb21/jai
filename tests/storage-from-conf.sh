@@ -6,7 +6,7 @@ setup_test xfail-storage-from-conf
 init_config
 
 STORAGE=$TEST_ROOT/storage
-mkdir -p "$STORAGE"
+real_user_mkdir_p "$STORAGE"
 
 cat >"$CONFIG_DIR/probe.conf" <<EOF
 conf .defaults

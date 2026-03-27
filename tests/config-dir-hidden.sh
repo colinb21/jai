@@ -6,7 +6,7 @@ setup_test xfail-config-dir-hidden
 
 CONFIG_DIR=$REAL_HOME/jai-test-config-hidden-$$
 register_cleanup_path "$CONFIG_DIR"
-mkdir -p "$CONFIG_DIR"
+real_user_mkdir_p "$CONFIG_DIR"
 
 init_config
 ensure_untrusted_user

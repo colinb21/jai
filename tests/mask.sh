@@ -10,7 +10,7 @@ TARGET_PATH=$REAL_HOME/$TARGET_NAME
 
 register_cleanup_path "$TARGET_PATH"
 
-printf 'mask-me' >"$TARGET_PATH"
+real_user_write_file "$TARGET_PATH" "mask-me"
 
 cat >"$CONFIG_DIR/mask-on.conf" <<EOF
 conf .defaults

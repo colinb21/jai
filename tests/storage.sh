@@ -12,9 +12,9 @@ UPPER_FILE=$STORAGE/default.changes/$(basename "$HOST_HOME_FILE")
 register_cleanup_path "$STORAGE"
 register_cleanup_path "$HOST_HOME_FILE"
 
-mkdir -p "$STORAGE"
-printf 'sentinel' >"$STORAGE/.sentinel"
-printf 'host' >"$HOST_HOME_FILE"
+real_user_mkdir_p "$STORAGE"
+real_user_write_file "$STORAGE/.sentinel" "sentinel"
+real_user_write_file "$HOST_HOME_FILE" "host"
 
 capture_in_dir "$WORKDIR" run_jai --storage "$STORAGE" /bin/sh -c '
   printf overlay > "$1"

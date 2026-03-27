@@ -11,8 +11,8 @@ UPPER_FILE=$CONFIG_DIR/default.changes/$(basename "$HOST_HOME_FILE")
 
 register_cleanup_path "$HOST_HOME_FILE"
 
-printf 'host-home' >"$HOST_HOME_FILE"
-printf 'host-cwd' >"$CWD_FILE"
+real_user_write_file "$HOST_HOME_FILE" "host-home"
+real_user_write_file "$CWD_FILE" "host-cwd"
 
 capture_in_dir "$WORKDIR" run_jai /bin/sh -c '
   printf "%s\n%s\n" "$JAI_MODE" "$JAI_JAIL"

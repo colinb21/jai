@@ -12,8 +12,8 @@ WRITE_FILE=$REAL_HOME/jai-strict-home-write-$$
 register_cleanup_path "$READ_FILE"
 register_cleanup_path "$WRITE_FILE"
 
-printf 'visible-from-home' >"$READ_FILE"
-rm -f "$WRITE_FILE"
+real_user_write_file "$READ_FILE" "visible-from-home"
+real_user_rm_f "$WRITE_FILE"
 
 capture_in_dir "$REAL_HOME" run_jai -m strict -D /bin/sh -c \
   '[ -e "$1" ] && printf visible || printf hidden' sh "$READ_FILE"
