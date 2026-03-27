@@ -40,7 +40,7 @@ complete_path(int dfd, CompSet &c, bool dir_only)
       continue;
     if (de->d_type == DT_UNKNOWN || de->d_type == DT_LNK) {
       struct stat sb;
-      if (fstatat(dirfd(*d), d_name(de), &sb, 0) && S_ISDIR(sb.st_mode))
+      if (!fstatat(dirfd(*d), d_name(de), &sb, 0) && S_ISDIR(sb.st_mode))
         de->d_type = DT_DIR;
     }
     if (dir_only && de->d_type != DT_DIR)
