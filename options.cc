@@ -1,6 +1,8 @@
 
 #include "options.h"
 
+#include <algorithm>
+
 void
 Options::parse_file(std::string_view text, std::string_view errpath)
 {

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "argtype.h"
+#include "move_only_function.h"
 
 #include <concepts>
 #include <functional>
@@ -78,5 +79,5 @@ struct NullaryInvoker {
 };
 } // namespace detail
 // Deferred cleanup action
-using Defer = RaiiHelper<detail::NullaryInvoker{},
-                         std::move_only_function<void()>, nullptr>;
+using Defer =
+    RaiiHelper<detail::NullaryInvoker{}, move_only_function<void()>, nullptr>;
