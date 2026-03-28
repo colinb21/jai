@@ -1235,6 +1235,9 @@ The default is CMD.conf if it exists, otherwise default.conf)",
   opts->parse_argv(argc, argv);
 
   restore.reset();
+  if (geteuid() && !getenv("JAI_TRY_NONROOT"))
+    err("{} requires root. Please run it with sudo or make it setuid root",
+        prog.filename().string());
 
   if (cmd.empty()) {
     const char *shell = conf.shell_.empty() ? "/bin/sh" : conf.shell_.c_str();

@@ -12,9 +12,16 @@ AC_PROG_CXX
 # Require C++23
 CXXFLAGS="$CXXFLAGS $CXXLANG"
 AC_LANG_PUSH([C++])
+AC_MSG_CHECKING(for working C++23 features)
 AC_COMPILE_IFELSE(
-  [AC_LANG_PROGRAM([], [])],
-  [],
+  [AC_LANG_PROGRAM([
+#include <functional>
+#include <print>
+  ], [
+std::move_only_function<void()> f = []{};
+f();
+  ])],
+  [AC_MSG_RESULT(yes)],
   [AC_MSG_ERROR([a C++23 compiler is required])])
 AC_LANG_POP([C++])
 
