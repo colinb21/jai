@@ -43,7 +43,7 @@ contains(const path &dir, const path &subpath)
   return std::ranges::mismatch(dir, subpath).in1 == dir.end();
 }
 
-// True is target matches pattern (with * expanded)
+// True if target matches pattern (with * expanded)
 bool glob(std::string_view pattern, std::string_view target);
 
 // Compare paths component by component so subtrees are contiguous

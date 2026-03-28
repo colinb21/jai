@@ -847,7 +847,7 @@ Config::parent_loop(pid_t pid, int stop_requests)
   };
   sigemptyset(&sa.sa_mask);
   if (sigaction(SIGCONT, &sa, nullptr))
-    syserr("sigcation(SIGCONT)");
+    syserr("sigaction(SIGCONT)");
 
   std::array<pollfd, 2> pollfds{pollfd{.fd = stop_requests, .events = POLLIN},
                                 pollfd{.fd = *sigfd, .events = POLLIN}};
@@ -907,11 +907,11 @@ try {
 
   prctl(PR_SET_NAME, "jai-init");
 
-  // Note: getpgid is technicalaly not signal safe, but disassembling
-  // glibc shows it doesn't do anything problematic other than maybe
-  // change errno.  Conceivably there could be weirdness performing
-  // lazy dynamic linking within a signal handler, so call getpgid at
-  // least once before setting the signal handler.
+  // Note: getpgid is technically not async-signal-safe, but
+  // disassembling glibc shows it doesn't do anything problematic
+  // other than maybe change errno (which we save/restore in the
+  // handler).  Call getpgid at least once before setting the signal
+  // handler to avoid any lazy dynamic linking in the signal handler.
   static pid_t my_pgid, main_child_pid;
   my_pgid = getpgid(0);
   main_child_pid = pid;
