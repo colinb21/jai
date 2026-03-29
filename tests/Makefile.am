@@ -1,6 +1,7 @@
 AUTOMAKE_OPTIONS = subdir-objects
 
 TESTS = \
+		fs_acl_test \
 		options_test \
 		basic.sh \
 		casual-overlay.sh \
@@ -21,10 +22,11 @@ TESTS = \
 		storage-from-conf.sh \
 		teardown.sh
 
-check_PROGRAMS = jai_test_probe jai_test_pty_driver options_test
+check_PROGRAMS = jai_test_probe jai_test_pty_driver fs_acl_test options_test
 
 jai_test_probe_SOURCES = jai-test-probe.cc
 jai_test_pty_driver_SOURCES = jai-test-pty-driver.cc
+fs_acl_test_SOURCES = fs_acl_test.cc ../fs.cc ../fs.h ../defer.h ../err.h
 options_test_SOURCES = options_test.cc ../options.cc ../options.h
 
 EXTRA_DIST = $(TESTS) common.sh.in setup-setuid.sh.in
