@@ -1,15 +1,16 @@
+#include "fs.h"
+#include "defer.h"
+
 #include <cassert>
 #include <cstring>
 #include <filesystem>
 
-#include <libmount.h>
 #include <sys/file.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include "defer.h"
-#include "fs.h"
+#include <print> // XXX
 
 bool
 glob(std::string_view pattern, std::string_view target)
@@ -68,22 +69,40 @@ fdpath(int fd, const path &file)
 PathMultiset
 mountpoints(const path &mountinfo)
 {
-  RaiiHelper<mnt_unref_table> t = mnt_new_table();
-  if (!t)
-    err("mnt_new_table() failed");
-  if (mnt_table_parse_file(t, mountinfo.c_str()))
-    syserr("parse {}", mountinfo.string());
+  const auto mi = read_file(-1, mountinfo);
+  PathMultiset ret;
 
-  RaiiHelper<mnt_free_iter> i = mnt_new_iter(MNT_ITER_FORWARD);
-  if (!i)
-    err("mnt_new_iter(MNT_ITER_FORWARD) failed");
+  for (size_t pos = 0; pos < mi.size();) {
+    size_t start = pos;
+    pos = std::min(mi.find('\n', pos), mi.size() - 1) + 1;
+    std::string_view line(mi.data() + start, pos - start);
 
-  PathMultiset res;
-  libmnt_fs *mp = nullptr;
-  while (!mnt_table_next_fs(t, i, &mp))
-    if (const char *target = mnt_fs_get_target(mp))
-      res.emplace(target);
-  return res;
+    size_t s = 0, e = 0;
+    for (int i = 0; i < 5; ++i) {
+      s = line.find_first_not_of(" ", e);
+      e = line.find(' ', s);
+    }
+    s = std::min(s, line.size());
+    e = std::min(e, line.size());
+    auto field = line.substr(s, e - s);
+
+    std::string mp;
+    for (int i = 0; i < field.size(); ++i) {
+      if (field[i] == '\\' && i + 4 <= field.size()) {
+        const char *p = field.data() + i + 1;
+        char c;
+        auto [eptr, ec] = std::from_chars(p, p + 3, c, 8);
+        if (ec == std::errc{}) {
+          i += eptr - p;
+          mp.push_back(c);
+          continue;
+        }
+      }
+      mp.push_back(field[i]);
+    }
+    ret.insert(std::move(mp));
+  }
+  return ret;
 }
 
 Fd

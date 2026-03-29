@@ -19,7 +19,6 @@ AC_COMPILE_IFELSE(
   [AC_MSG_ERROR([a C++23 compiler is required])])
 AC_LANG_POP([C++])
 
-PKG_CHECK_MODULES([MOUNT], [mount])
 PKG_CHECK_MODULES([LIBACL], [libacl])
 
 AC_PATH_PROG([PATH_BASH], [bash], [/bin/bash])
