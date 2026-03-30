@@ -2,6 +2,7 @@
 #include "defer.h"
 
 #include <bit>
+#include <charconv>
 #include <cstring>
 #include <filesystem>
 
@@ -642,11 +643,7 @@ normalize(const ACL &a)
     amap.insert_or_assign(ACL_MASK, mask(bound));
   }
 
-  ACL out;
-  out.reserve(amap.size());
-  for (const auto &[_it, e] : amap)
-    out.push_back(e);
-  return out;
+  return ACL(std::from_range, amap | std::views::values);
 }
 
 } // namespace acl
