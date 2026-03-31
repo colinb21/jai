@@ -1084,7 +1084,7 @@ Config::opt_parser(bool dotjail)
         grant_directories_.emplace(
             canonical(parsing_config_file_ ? homepath_ / d : d), 0);
       },
-      "Grant full access to DIR.", "DIR");
+      "Grant full access to DIR", "DIR");
   opts(
       "--dir!",
       [this](std::string_view arg) {
@@ -1101,7 +1101,7 @@ Config::opt_parser(bool dotjail)
         grant_directories_.emplace(
             canonical(parsing_config_file_ ? homepath_ / d : d), kGrantRO);
       },
-      "Grant read-only access to DIR.", "DIR");
+      "Grant read-only access to DIR", "DIR");
   opts(
       "--rdir?",
       [this](std::string_view arg) {
@@ -1112,7 +1112,7 @@ Config::opt_parser(bool dotjail)
         } catch (const std::exception &) {
         }
       },
-      "Grant read-only access to DIR.", "DIR");
+      "Like --rdir but ignore the option if DIR does not exist", "DIR");
   opts(
       "-x", "--xdir",
       [this](std::string_view arg) {
@@ -1120,7 +1120,7 @@ Config::opt_parser(bool dotjail)
         grant_directories_.erase(
             canonical(parsing_config_file_ ? homepath_ / d : d));
       },
-      "undo the effects of a previous --dir option", "DIR");
+      "Undo the effects of a previous --dir option", "DIR");
   opts(
       "-D", "--nocwd", [this] { grant_cwd_ = false; },
       "Do not grant access to the current working directory");
