@@ -122,7 +122,7 @@ struct Config {
   path make_script();
   void exec(int nsfd, char **argv);
   int unmount();
-  bool unmountall();
+  int unmountall();
   std::unique_ptr<Options> opt_parser(bool dotjail = false);
 
   int complete(Options::Completions c);

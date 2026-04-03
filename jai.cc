@@ -742,7 +742,7 @@ Config::unmount()
   return ret;
 }
 
-bool
+int
 Config::unmountall()
 {
   Fd lock;
@@ -779,7 +779,7 @@ Config::unmountall()
   lock.reset();
   unlinkat(run_jai(), user_.c_str(), AT_REMOVEDIR);
 
-  return unmount_ok;
+  return unmount_ok ? 0 : 1;
 }
 
 std::vector<const char *>
@@ -1433,10 +1433,8 @@ The default is CMD.conf if it exists, otherwise default.conf)",
 
   restore.reset();
 
-  if (opt_u) {
-    conf.unmount();
-    return 0;
-  }
+  if (opt_u)
+    return conf.unmount();
 
   if (geteuid() && !getenv("JAI_TRY_NONROOT"))
     err("{} requires root. Please run it with sudo or make it setuid root",
@@ -1461,7 +1459,7 @@ main(int argc, char **argv)
   else
     prog = PACKAGE_TARNAME;
 
-#if 0
+#if 1
   using ToCatch = std::exception;
 #else
   struct ToCatch {
