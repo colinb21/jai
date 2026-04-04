@@ -81,7 +81,7 @@ Credentials::getgroups()
       return ret;
     }
   }
-  err("getgroups: consistenly unable to get actual groups");
+  err("getgroups: consistently unable to get actual groups");
 }
 
 // Make a uid map mapping user to untrusted, leaving untrusted
