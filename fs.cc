@@ -112,7 +112,7 @@ xfsopen(const char *fsname, const char *source)
 {
   Fd fd = fsopen(fsname, FSOPEN_CLOEXEC);
   if (!fd)
-    syserr(R"(fsopen("{}")", fsname);
+    syserr(R"(fsopen("{}"))", fsname);
   if (source && fsconfig(*fd, FSCONFIG_SET_STRING, "source", source, 0))
     syserr(R"(fsconfig({}, FSCONFIG_SET_STRING, "source", "{}", 0))", fsname,
            source);
@@ -171,7 +171,7 @@ recursive_umount(const path &tree, bool detach)
     if (umount2(dir.c_str(), UMOUNT_NOFOLLOW)) {
       warn(R"(umount("{}"): {})", dir.string(), strerror(errno));
       if (detach && umount2(dir.c_str(), UMOUNT_NOFOLLOW | MNT_DETACH) == 0)
-        warn("did lazy unmount of {}\n", dir.string());
+        warn("did lazy unmount of {}", dir.string());
       else
         ret = false;
     }
@@ -583,11 +583,11 @@ deserialize(const XattrVal &raw)
   using Ent = unaligned<posix_acl_xattr_entry>;
 
   if (raw.size() < Hdr::size() || ((raw.size() - Hdr::size()) % Ent::size()))
-    err("acl::deseriralize: invalid size {} bytes", raw.size());
+    err("acl::deserialize: invalid size {} bytes", raw.size());
 
   auto h = get(reinterpret_cast<const Hdr *>(raw.data()));
   if (auto v = loadle(h.a_version); v != POSIX_ACL_XATTR_VERSION)
-    err("acl::deseriralize: invalid version {}", v);
+    err("acl::deserialize: invalid version {}", v);
 
   size_t nentries = (raw.size() - Hdr::size()) / Ent::size();
   auto entries = reinterpret_cast<const Ent *>(raw.data() + Hdr::size());
