@@ -31,8 +31,10 @@ copy-on-write access to an overlay mount of your home directory,
 private `/tmp` and `/var/tmp` directories, and the rest of the file
 system read-only.  Note, however, that device nodes remain usable
 subject to normal permission checks; a read-only `/dev` mount does not
-prevent opening devices read-write.  If you don't specify *cmd*, jai
-will launch a jailed shell by default.
+prevent opening devices read-write.  Note also inherited file
+descriptors for file outside the jail can still be used by jailed
+commands.  If you don't specify *cmd*, jai will launch a jailed shell
+by default.
 
 Executing a command in this way is known as _casual mode_, because
 *cmd* can read most sensitive files on the system.  In other words,
@@ -299,6 +301,36 @@ EOF
 chmod +x ~/.jai/.initjail
 echo initjail .initjail >> ~/.jai/.defaults
 ```
+
+If you prevent jailed processes from inheriting any file descriptors
+other than 0,1, and 2, you can use a script to close all file
+descriptors other than these and file descriptor 255 (which bash
+uses).  For example, you could add the following lines to
+`$HOME/.jai/.jairc` and refresh your `.defaults` file (run `jai
+--print-defaults`) if `command` does not already source `$JAI_SCRIPT`:
+
+```bash
+scrub_fds() {
+  local p fd
+
+  for p in /proc/$$/fd/*; do
+    fd=${p##*/}
+
+    case $fd in
+      0|1|2|255) continue ;;
+      ''|*[!0-9]*) continue ;;
+    esac
+
+    eval "exec $fd<&- $fd>&-" 2>/dev/null || :
+  done
+}
+
+test -n "${JAI_KEEP_FDS+set}" || scrub_fds
+```
+
+Then unless you set the `JAI_KEEP_FDS` environment variable, file
+descriptors will be scrubbed by default in sandboxes.
+
 
 # OPTIONS
 
