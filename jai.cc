@@ -772,8 +772,6 @@ Config::unmount()
   }
   if (mode_ == kStrict) {
     auto mp = runuser / "passwd";
-    if (umount2(mp.c_str(), UMOUNT_NOFOLLOW) && errno != ENOENT)
-      ret = 1;
     if (unlinkat(run_jai_user(), mp.filename().c_str(), 0) && errno != ENOENT)
       ret = 1;
   }
@@ -1303,7 +1301,8 @@ Config::opt_parser(bool dotjail)
                  [var](const auto &it) { return glob(var, it.first); });
         env_filter_.emplace(var);
       },
-      "Remove VAR (wich may contain wildcard '*') from the environment", "VAR");
+      "Remove VAR (which may contain wildcard '*') from the environment",
+      "VAR");
   opts(
       "--setenv",
       [this](std::string var) {
@@ -1335,7 +1334,9 @@ source "${JAI_SCRIPT:-/dev/null}"; "$0" "$@")",
       "--storage",
       [this](std::string_view s) {
         auto sd = expand(s);
-        if (parsing_config_file_)
+        if (sd.empty())
+          storagedir_ = path{};
+        else if (parsing_config_file_)
           storagedir_ = homepath_ / sd;
         else
           storagedir_ = cwd() / sd;

@@ -79,18 +79,18 @@ to move your entire configuration directory from `$HOME/.jai` to a
 local disk.
 
 If you want to grant access to directories other than the current
-working directory, you can specify addition directories with the `-d`
-option, as in `jai -d /local/build untrusted_program`.  If you don't
-want to grant access to the current working directory, use the `-D`
-option.  Note that by default, jai will refuse to run in your home
-directory, on the assumption that this is probably a mistake and that
-you don't want to grant your entire home directory to jailed
+working directory, you can specify additional directories with the
+`-d` option, as in `jai -d /local/build untrusted_program`.  If you
+don't want to grant access to the current working directory, use the
+`-D` option.  Note that by default, jai will refuse to run in your
+home directory, on the assumption that this is probably a mistake and
+that you don't want to grant your entire home directory to jailed
 processes.  If you are in your home directory, you can launch jai with
 `-D` to start in the sandboxed version of your home directory without
 granting anything.  If you really want to grant your entire home
-directory to the jail, you can still do so by running `jai -Dd
-$HOME`, but since that negates most of jai's protections, it would
-only make sense in unusual corner cases.
+directory to the jail, you can still do so by running `jai -Dd $HOME`,
+but since that negates most of jai's protections, it would only make
+sense in unusual corner cases.
 
 If you use casual mode and jailed software stores configuration files
 in your home directory, you will find any such changes in
@@ -178,9 +178,10 @@ To install claude code in a jail called `claude`:
     curl -fsSL https://claude.ai/install.sh | \
         jai -D -mstrict -j claude bash
 
-(Note the `bash` argument is optional, because jai runs `bash` by
-default.)  To invoke claude code in that same jail, if
-`$HOME/.local/bin` is not already on your path:
+(Note that jai runs your login shell by default, so if your shell is
+`bash`, then you can just pipe `curl` to `jai -D -mstrict -j claude`
+without even specifying bash.)  To invoke claude code in that same
+jail, if `$HOME/.local/bin` is not already on your path:
 
     PATH=$HOME/.local/bin:$PATH jai -j claude claude
 
@@ -193,11 +194,10 @@ To make `jai claude` use the claude jail by default:
     EOF
 
 Now you can run `jai claude` to invoke claude code with access to the
-current working directory, and `jail -C claude` to get a shell with
-the same permissions as claude, so as to understand what claude is
-seeing.  To prohibit claude from changing git state when run in the
-root of a git repository, you can make `$PWD/.git` read-only when it
-exists:
+current working directory, and `jai -C claude` to get a shell with the
+same permissions as claude, so as to understand what claude is seeing.
+To prohibit claude from changing git state when run in the root of a
+git repository, you can make `$PWD/.git` read-only when it exists:
 
     cat <<'EOF' >$HOME/.jai/claude.conf
     conf .defaults
@@ -306,13 +306,14 @@ echo initjail .initjail >> ~/.jai/.defaults
 : Create default configuration files and exit.  Gives you a chance to
   edit the default configuration files before creating any jails.
 
-`-C` *file*, `--conf` *file*
+`-C` *file*, `--conf` *file*, `--conf?` *file*
 : Specifies the configuration file to read.  If *file* does not
   contain a `/`, the file is relative to `$HOME/.jai`.  Also, if
   *file* resides in `$HOME/.jai` and does not contain a `/`, you can
   omit any `.conf` extension.  So `-C default` is equivalent to `-C
   default.conf` (assuming you don't have a file `default` in addition
-  to `default.conf`).
+  to `default.conf`).  Unlike the first two options, `--conf?` does
+  not cause an error if file does not exist.
 
     If no configuration file is specified, the default is based on the
   *cmd* argument.  If *cmd* contains no slashes and does not start
@@ -517,8 +518,8 @@ echo initjail .initjail >> ~/.jai/.defaults
 
     If you specify `-j` *jail* in addition to `-u`, jai will clean up
   only one specific jail.  For a casual jail, this means unmounting
-  the overlay network and cleaning the work directory.  Strict jails
-  all share one copy of the password file (in which user `jai`'s home
+  the overlay mount and cleaning the work directory.  Strict jails all
+  share one copy of the password file (in which user `jai`'s home
   directory has been changed to the invoking user's home directory).
   `-u` will attempt to unmount and delete the password file, but may
   not be able to if other strict jails are still in use.
@@ -649,7 +650,7 @@ variables or command-line options:
 : Private `/tmp` and `/var/tmp` directory (they are the same) in
   jails.
 
-`/run/jai/$USER/tmp/.run/defaut`, `/run/jai/$USER/tmp/.run/`*name*
+`/run/jai/$USER/tmp/.run/default`, `/run/jai/$USER/tmp/.run/`*name*
 : Outside a sandbox, these paths provide access to `/run/user/$UID`
   inside either the default sandbox or the one named *name*.
 

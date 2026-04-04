@@ -94,7 +94,7 @@ mask .mozilla
 mask .config/BraveSoftware
 mask .config/chromium
 mask .config/google-chrome
-mask .config/mozilla-chrome
+mask .config/mozilla
 mask .bash_history
 mask .zsh_history
 

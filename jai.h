@@ -94,7 +94,6 @@ struct Config {
   PathSet mask_files_;
   bool mask_warn_{};
   bool parsing_config_file_{};
-  bool need_initjail_;
 
   std::string user_;
   path homepath_;
