@@ -42,7 +42,7 @@ struct RaiiHelper {
       Destroy(std::move(destroy_me));
   }
 
-  void reset() noexcept(noexcept(reset(Empty))) { reset(Empty); }
+  void reset() { reset(Empty); }
 
   template<typename Arg>
   RaiiHelper &operator=(Arg &&arg) noexcept

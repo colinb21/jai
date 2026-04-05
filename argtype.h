@@ -40,6 +40,6 @@ template<std::size_t N, typename F>
 using ArgNType =
     std::tuple_element_t<N, typename detail::ArgTypeHelper<F>::type>;
 
-// Argument type of a function callable object with one argument
+// Argument type of a function or callable object with one argument
 template<typename F> requires (kArity<F> == 1)
 using UnaryType = ArgNType<0, F>;
