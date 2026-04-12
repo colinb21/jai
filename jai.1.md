@@ -32,7 +32,7 @@ private `/tmp` and `/var/tmp` directories, and the rest of the file
 system read-only.  Note, however, that device nodes remain usable
 subject to normal permission checks; a read-only `/dev` mount does not
 prevent opening devices read-write.  Note also inherited file
-descriptors for file outside the jail can still be used by jailed
+descriptors for files outside the jail can still be used by jailed
 commands.  If you don't specify *cmd*, jai will launch a jailed shell
 by default.
 
@@ -41,7 +41,7 @@ Executing a command in this way is known as _casual mode_, because
 jai prevents *cmd* from clobbering all your files, but doesn't provide
 much confidentiality.
 
-If you run `jai -mstrict` *cmd* [*arg*]...", then *cmd* will be run
+If you run "`jai -mstrict` *cmd* [*arg*]...", then *cmd* will be run
 with an empty home directory, using the credentials of the
 unprivileged user `jai` on your system, but with the current working
 directory mapped to its place and fully exposed.  Though the rest of
@@ -82,17 +82,17 @@ local disk.
 
 If you want to grant access to directories other than the current
 working directory, you can specify additional directories with the
-`-d` option, as in `jai -d /local/build untrusted_program`.  If you
-don't want to grant access to the current working directory, use the
-`-D` option.  Note that by default, jai will refuse to run in your
-home directory, on the assumption that this is probably a mistake and
-that you don't want to grant your entire home directory to jailed
-processes.  If you are in your home directory, you can launch jai with
-`-D` to start in the sandboxed version of your home directory without
-granting anything.  If you really want to grant your entire home
-directory to the jail, you can still do so by running `jai -Dd $HOME`,
-but since that negates most of jai's protections, it would only make
-sense in unusual corner cases.
+`-d` option, as in `jai -d /local/build cmd`.  If you don't want to
+grant access to the current working directory, use the `-D` option.
+Note that by default, jai will refuse to run in your home directory,
+on the assumption that this is probably a mistake and that you don't
+want to grant your entire home directory to jailed processes.  If you
+are in your home directory, you can launch jai with `-D` to start in
+the sandboxed version of your home directory without granting
+anything.  If you really want to grant your entire home directory to
+the jail, you can still do so by running `jai -Dd $HOME`, but since
+that negates most of jai's protections, it would only make sense in
+unusual corner cases.
 
 If you use casual mode and jailed software stores configuration files
 in your home directory, you will find any such changes in
@@ -129,8 +129,8 @@ necessary).  That way the `.conf` file can specify a jail name and the
 
 The format of `.conf` and `.jail` configuration files is a series of
 lines of the form "*option* [*value*]" or "*option*`=`*value*".
-*option* can be any long command-line option without the leading `--`,
-for example:
+*option* can be almost any long command-line option without the
+leading `--`, for example:
 
     conf .defaults
     mode casual
@@ -208,8 +208,11 @@ git repository, you can make `$PWD/.git` read-only when it exists:
     setenv PATH=${HOME}/.local/bin:${PATH}
     EOF
 
-To make `jai claudeyolo` run claude in dangerous mode, you
-could create another configuration file like this:
+To make `jai claudeyolo` run claude in dangerous mode, you could
+create another configuration file like this (but see the `--script`
+option for a less clunky way to accomplish the same thing):
+
+
 
     cat <<'EOF' > $HOME/.jai/claudeyolo.conf
     # Start with claude's defaults
@@ -302,12 +305,13 @@ chmod +x ~/.jai/.initjail
 echo initjail .initjail >> ~/.jai/.defaults
 ```
 
-If you prevent jailed processes from inheriting any file descriptors
-other than 0,1, and 2, you can use a script to close all file
-descriptors other than these and file descriptor 255 (which bash
+If you want to prevent jailed processes from inheriting any file
+descriptors other than 0,1, and 2, you can use a script to close all
+file descriptors other than these and file descriptor 255 (which bash
 uses).  For example, you could add the following lines to
 `$HOME/.jai/.jairc` and refresh your `.defaults` file (run `jai
---print-defaults`) if `command` does not already source `$JAI_SCRIPT`:
+--print-defaults` to get the latest suggested `.defaults` file) if
+`command` does not already source `$JAI_SCRIPT`:
 
 ```bash
 scrub_fds() {
